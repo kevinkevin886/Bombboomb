@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>Python 爆爆王</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; background-color: #222; color: white; }
+        
+        .screen { display: none; padding: 20px; }
+        .active { display: block !important; }
+
+        input { padding: 10px; border-radius: 5px; border: none; font-size: 16px;}
+        button { margin-top: 10px; padding: 10px 20px; border-radius: 5px; cursor: pointer; background-color: #e74c3c; color: white; border: none; font-size: 16px; font-weight: bold; }
+        button:hover { background-color: #c0392b; }
+
+        /* 玩家列表樣式 */
+        #player-list { list-style: none; padding: 0; max-width: 300px; margin: 20px auto; background: #333; border-radius: 8px; }
+        #player-list li { padding: 10px; border-bottom: 1px solid #444; }
+        #player-list li:last-child { border-bottom: none; }
+
+        canvas { background-color: #ecf0f1; border: 4px solid #7f8c8d; margin-top: 20px; border-radius: 4px; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        
+        #winner-overlay {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9); padding: 40px; border-radius: 10px;
+            text-align: center; display: none; z-index: 10;
+        }
+        #winner-overlay h1 { color: #f1c40f; font-size: 3em; margin: 0 0 20px 0; }
+    </style>
+</head>
+<body>
+
+    <div id="login-screen" class="screen active">
+        <h1>💣 爆爆王大亂鬥</h1>
+        <p>所有玩家將進入同一個戰場</p>
+        <input type="text" id="username" placeholder="請輸入你的暱稱" />
+        <br><br>
+        <button onclick="joinGame()">進入戰場</button>
+    </div>
+
+    <div id="lobby-screen" class="screen">
+        <h2>等待室</h2>
+        <p>目前已加入的玩家：</p>
+        <ul id="player-list">
+            </ul>
+        <br>
+        <button onclick="startGame()">🚀 開始遊戲</button>
+    </div>
+
+    <div id="game-screen" class="screen">
+        <div class="info">WASD 移動 | 空白鍵 放置核彈 (十字全圖攻擊)</div>
+        <div style="position: relative; display: inline-block;">
+            <canvas id="gameCanvas" width="600" height="600"></canvas>
+            
+            <div id="winner-overlay">
+                <h1 id="winner-name">XXX 獲勝!</h1>
+                <button onclick="location.reload()">再玩一次</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        
+        const screens = {
+            login: document.getElementById('login-screen'),
+            lobby: document.getElementById('lobby-screen'),
+            game: document.getElementById('game-screen')
+        };
+
+        function showScreen(name) {
+            Object.values(screens).forEach(s => s.classList.remove('active'));
+            screens[name].classList.add('active');
+        }
+
+        function joinGame() {
+            const name = document.getElementById('username').value;
+            if(!name) return alert("請輸入暱稱");
+            
+            // 不再需要傳送 room 參數，後端會自動分配
+            socket.emit('create_join', {name: name});
+            showScreen('lobby');
+        }
+
+        function startGame() {
+            socket.emit('start_game', {});
+        }
+
+        // --- 新增：接收大廳玩家列表更新 ---
+        socket.on('update_lobby', (data) => {
+            const list = document.getElementById('player-list');
+            list.innerHTML = ""; // 清空
+            data.players.forEach(name => {
+                const li = document.createElement('li');
+                li.innerText = "👤 " + name;
+                list.appendChild(li);
+            });
+            
+            // 如果遊戲已經開始，直接切換過去 (給中途重整的人用，雖然本範例主要是一起開始)
+            if(data.is_running) {
+                showScreen('game');
+            }
+        });
+
+        // 接收遊戲狀態更新
+        socket.on('state_update', (state) => {
+            showScreen('game');
+            renderGame(state);
+            
+            if(state.winner) {
+                document.getElementById('winner-name').innerText = "🏆 " + state.winner + " 獲勝!";
+                document.getElementById('winner-overlay').style.display = "block";
+            } else {
+                document.getElementById('winner-overlay').style.display = "none";
+            }
+        });
+
+        socket.on('error', (data) => alert(data.msg));
+
+        // --- 繪圖邏輯 ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const MAP_W = 12;        // 修改點: 12x12
+        const VIEW_SIZE = 600;   
+        const CELL_SIZE = VIEW_SIZE / MAP_W; // 50px
+        const PLAYER_SIZE = 0.7; 
+
+        function renderGame(state) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. 畫地圖
+            for(let y=0; y<MAP_W; y++) {
+                for(let x=0; x<MAP_W; x++) {
+                    if(state.map[y][x] === 1) {
+                        ctx.fillStyle = "#7f8c8d";
+                        ctx.fillRect(x*CELL_SIZE, y*CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                        ctx.lineWidth = 2;
+                        ctx.strokeStyle = "#95a5a6";
+                        ctx.strokeRect(x*CELL_SIZE, y*CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                    } else {
+                        ctx.strokeStyle = "#444"; 
+                        ctx.lineWidth = 1;
+                        ctx.strokeRect(x*CELL_SIZE, y*CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                    }
+                }
+            }
+
+            // 2. 畫炸彈
+            state.bombs.forEach(b => {
+                const cx = b.x * CELL_SIZE + CELL_SIZE/2;
+                const cy = b.y * CELL_SIZE + CELL_SIZE/2;
+                ctx.fillStyle = "black";
+                ctx.beginPath();
+                ctx.arc(cx, cy, CELL_SIZE/2 - 4, 0, Math.PI*2);
+                ctx.fill();
+                ctx.fillStyle = "red"; // 閃爍燈
+                ctx.beginPath();
+                ctx.arc(cx - 5, cy - 5, 4, 0, Math.PI*2);
+                ctx.fill();
+            });
+
+            // 3. 畫爆炸
+            state.explosions.forEach(exp => {
+                ctx.fillStyle = "rgba(231, 76, 60, 0.8)";
+                ctx.fillRect(exp.x*CELL_SIZE, exp.y*CELL_SIZE, CELL_SIZE, CELL_SIZE);
+            });
+
+            // 4. 畫玩家
+            for (const [sid, p] of Object.entries(state.players)) {
+                if(!p.alive) continue;
+                const px = p.x * CELL_SIZE;
+                const py = p.y * CELL_SIZE;
+                const pSize = PLAYER_SIZE * CELL_SIZE;
+
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.roundRect(px, py, pSize, pSize, 8);
+                ctx.fill();
+                
+                // 眼睛
+                ctx.fillStyle = "white";
+                ctx.beginPath();
+                ctx.arc(px + pSize*0.3, py + pSize*0.3, 5, 0, Math.PI*2);
+                ctx.arc(px + pSize*0.7, py + pSize*0.3, 5, 0, Math.PI*2);
+                ctx.fill();
+                ctx.fillStyle = "black";
+                ctx.beginPath();
+                ctx.arc(px + pSize*0.3 + p.dx*3, py + pSize*0.3 + p.dy*3, 2, 0, Math.PI*2);
+                ctx.arc(px + pSize*0.7 + p.dx*3, py + pSize*0.3 + p.dy*3, 2, 0, Math.PI*2);
+                ctx.fill();
+
+                ctx.fillStyle = "white";
+                ctx.font = "bold 14px Arial";
+                ctx.textAlign = "center";
+                ctx.fillText(p.name, px + pSize/2, py - 8);
+            }
+        }
+
+        const keysPressed = {};
+        document.addEventListener('keydown', (e) => {
+            if(!screens.game.classList.contains('active')) return;
+            if(keysPressed[e.key]) return;
+            keysPressed[e.key] = true;
+            socket.emit('key_down', {key: e.key});
+        });
+        document.addEventListener('keyup', (e) => {
+            if(!screens.game.classList.contains('active')) return;
+            keysPressed[e.key] = false;
+            socket.emit('key_up', {key: e.key});
+        });
+    </script>
+</body>
+</html>
