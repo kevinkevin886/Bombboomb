@@ -31,6 +31,7 @@ class GameState:
         self.winner = None
         self.winner_sid = None
         self.start_player_count = 2
+        self.available_spawns = []
         self.generate_map()
 
     def generate_map(self):
@@ -38,28 +39,24 @@ class GameState:
             self.map_data = [[0] * MAP_SIZE for _ in range(MAP_SIZE)]
             walkable_coords = [] 
 
+            # 1. 佈置硬牆 (Hard Walls)
             for y in range(MAP_SIZE):
                 for x in range(MAP_SIZE):
                     if x == 0 or x == MAP_SIZE-1 or y == 0 or y == MAP_SIZE-1:
                         self.map_data[y][x] = 1
                     elif random.random() < 0.15: 
-                        if (x < 3 and y < 3) or (x > MAP_SIZE-4 and y < 3) or \
-                           (x < 3 and y > MAP_SIZE-4) or (x > MAP_SIZE-4 and y > MAP_SIZE-4):
-                            self.map_data[y][x] = 0
-                            walkable_coords.append((x, y))
-                        else:
-                            self.map_data[y][x] = 1
+                        # 這裡不再強制避開角落，因為出生點是隨機選的
+                        self.map_data[y][x] = 1
                     else:
                         self.map_data[y][x] = 0
                         walkable_coords.append((x, y))
 
+            # 2. 連通性檢查 (BFS)
             if not walkable_coords: continue
-            
             start_node = walkable_coords[0]
             visited = set()
             queue = [start_node]
             visited.add(start_node)
-
             while queue:
                 cx, cy = queue.pop(0)
                 for dx, dy in [(0,1), (0,-1), (1,0), (-1,0)]:
@@ -72,29 +69,72 @@ class GameState:
             if len(visited) != len(walkable_coords):
                 continue
             
+            # 3. 佈置軟牆 (磚塊) - 先隨機鋪滿
             for y in range(MAP_SIZE):
                 for x in range(MAP_SIZE):
                     if self.map_data[y][x] == 0:
-                        if (x < 2 and y < 2) or (x > MAP_SIZE-3 and y < 2) or \
-                           (x < 2 and y > MAP_SIZE-3) or (x > MAP_SIZE-3 and y > MAP_SIZE-3):
-                            continue
                         if random.random() < 0.4:
                             self.map_data[y][x] = 2
+
+            # === 4. 生成隨機且安全的出生點 (關鍵修改) ===
+            self.available_spawns = [] # 清空舊的
+            candidates = []
+
+            # 找出所有適合當出生點的位置
+            # 條件：本身不是硬牆，且四周至少有 2 個鄰居不是硬牆 (這樣才能清出直角)
+            for y in range(1, MAP_SIZE-1):
+                for x in range(1, MAP_SIZE-1):
+                    if self.map_data[y][x] == 1: continue # 硬牆不能當出生點
+
+                    non_hard_neighbors = 0
+                    for dx, dy in [(0,1), (0,-1), (1,0), (-1,0)]:
+                        if self.map_data[y+dy][x+dx] != 1:
+                            non_hard_neighbors += 1
+                    
+                    if non_hard_neighbors >= 2:
+                        candidates.append((x, y))
+            
+            # 如果候選點太少 (極端情況)，重新生成地圖
+            if len(candidates) < 8: continue
+
+            # 從候選點中隨機選出 8 個作為本局的出生點
+            random.shuffle(candidates)
+            chosen_spawns = candidates[:8] # 取前 8 個
+
+            for cx, cy in chosen_spawns:
+                # A. 確保出生點本身是空地
+                self.map_data[cy][cx] = 0
+                
+                # B. 強制清理周圍的軟牆，確保有路可走
+                # 這樣保證了只要不是硬牆的方向，磚塊都會被移除，形成通路
+                for dx, dy in [(0,1), (0,-1), (1,0), (-1,0)]:
+                    nx, ny = cx + dx, cy + dy
+                    if self.map_data[ny][nx] == 2: # 如果是磚塊
+                        self.map_data[ny][nx] = 0  # 變成空地
+                
+                # 將這個處理好的安全座標加入列表
+                self.available_spawns.append((cx, cy))
+
+            # 生成成功
             break
 
     def reset_round(self):
         self.is_running = False
         self.bombs = []
         self.explosions = []
-        self.generate_map()
+        self.generate_map() # 這裡會重新生成 available_spawns
         
         if self.winner_sid and self.winner_sid in self.players:
             self.host_sid = self.winner_sid
-        if self.host_sid not in self.players and self.players:
+        elif self.players:
             self.host_sid = random.choice(list(self.players.keys()))
 
         self.winner = None
         self.winner_sid = None
+        
+        # 複製一份出生點列表來發送 (避免 pop 影響原始資料，雖然這裡無所謂)
+        spawn_pool = list(self.available_spawns)
+        random.shuffle(spawn_pool)
 
         for sid, p in self.players.items():
             p['alive'] = True
@@ -103,37 +143,67 @@ class GameState:
             p['is_moving'] = False
             p['face_dir'] = (1, 0) 
             
-            while True:
-                rx, ry = random.randint(1, MAP_SIZE-2), random.randint(1, MAP_SIZE-2)
-                if self.map_data[ry][rx] == 0:
-                    p['x'] = rx 
-                    p['y'] = ry
-                    p['target_x'] = rx
-                    p['target_y'] = ry
-                    break
+            # --- 分配隨機安全出生點 ---
+            if spawn_pool:
+                sx, sy = spawn_pool.pop()
+                p['x'] = sx
+                p['y'] = sy
+                p['target_x'] = sx
+                p['target_y'] = sy
+            else:
+                # 萬一出生點不夠 (超過8人)，隨機找個空位 (備用方案)
+                while True:
+                    rx, ry = random.randint(1, MAP_SIZE-2), random.randint(1, MAP_SIZE-2)
+                    if self.map_data[ry][rx] == 0:
+                        p['x'] = rx 
+                        p['y'] = ry
+                        p['target_x'] = rx
+                        p['target_y'] = ry
+                        break
 
     def add_player(self, sid, name, avatar=None):
         if not self.players:
             self.host_sid = sid
-
-        while True:
-            rx, ry = random.randint(1, MAP_SIZE-2), random.randint(1, MAP_SIZE-2)
-            if self.map_data[ry][rx] == 0:
-                self.players[sid] = {
-                    'name': name,
-                    'avatar': avatar,
-                    'x': rx,
-                    'y': ry,
-                    'target_x': rx,
-                    'target_y': ry,
-                    'is_moving': False,
-                    'input_dir': None,
-                    'face_dir': (1, 0),
-                    'color': f'#{random.randint(0, 0xFFFFFF):06x}',
-                    'alive': True,
-                    'is_ready': (sid == self.host_sid)
-                }
+        
+        # --- 分配隨機安全出生點 ---
+        # 找出目前還沒被佔用的出生點
+        occupied_positions = set()
+        for p in self.players.values():
+            occupied_positions.add((int(p['x']), int(p['y'])))
+        
+        spawn_x, spawn_y = -1, -1
+        
+        # 從 available_spawns 裡找一個沒人的
+        random.shuffle(self.available_spawns) # 洗牌增加隨機性
+        found = False
+        for sx, sy in self.available_spawns:
+            if (sx, sy) not in occupied_positions:
+                spawn_x, spawn_y = sx, sy
+                found = True
                 break
+        
+        if not found:
+            # 沒空位了，隨機找地圖空地
+            while True:
+                rx, ry = random.randint(1, MAP_SIZE-2), random.randint(1, MAP_SIZE-2)
+                if self.map_data[ry][rx] == 0:
+                    spawn_x, spawn_y = rx, ry
+                    break
+
+        self.players[sid] = {
+            'name': name,
+            'avatar': avatar,
+            'x': spawn_x,
+            'y': spawn_y,
+            'target_x': spawn_x,
+            'target_y': spawn_y,
+            'is_moving': False,
+            'input_dir': None,
+            'face_dir': (1, 0),
+            'color': f'#{random.randint(0, 0xFFFFFF):06x}',
+            'alive': True,
+            'is_ready': (sid == self.host_sid)
+        }
 
     def remove_player(self, sid):
         if sid in self.players:
