@@ -2,67 +2,365 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>Python 爆爆王</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teams 爆爆王 (Dark)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; background-color: #222; color: white; }
+        /* --- Teams Dark Mode 風格 --- */
+        :root {
+            --teams-bg: #1f1f1f;          /* 極深灰背景 */
+            --teams-card: #2d2c2c;        /* 深灰卡片 */
+            --teams-purple: #8B8CC7;      /* 較亮的紫色 */
+            --teams-purple-dark: #6264A7; /* 深紫色 (按鈕) */
+            --teams-text: #ffffff;        /* 白色文字 */
+            --teams-gray-text: #adadad;   /* 淺灰文字 */
+            --teams-border: #3b3a3a;      /* 邊框色 */
+            --teams-success: #6CCB5F;     /* 亮綠色 */
+            --teams-input-bg: #3b3a3a;    /* 輸入框背景 */
+            --chat-bubble-self: #3d3e5e;  /* 自己發話背景 */
+            --chat-bubble-other: #3b3a3a; /* 別人發話背景 */
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif;
+            background-color: var(--teams-bg);
+            color: var(--teams-text);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
         
-        .screen { display: none; padding: 20px; }
+        /* 通用卡片容器 */
+        .screen-container {
+            background-color: var(--teams-card);
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5); 
+            text-align: center;
+            width: 100%;
+            border: 1px solid var(--teams-border);
+        }
+        
+        /* 登入畫面專用寬度 */
+        #login-screen { max-width: 400px; }
+
+        /* 大廳畫面專用寬度 (變寬以容納聊天室) */
+        #lobby-screen { max-width: 900px; padding: 20px; }
+
+        .screen { display: none; }
         .active { display: block !important; }
 
-        input { padding: 10px; border-radius: 5px; border: none; font-size: 16px;}
-        button { margin-top: 10px; padding: 10px 20px; border-radius: 5px; cursor: pointer; background-color: #e74c3c; color: white; border: none; font-size: 16px; font-weight: bold; }
-        button:hover { background-color: #c0392b; }
+        h1, h2 { color: var(--teams-purple); margin-top: 0; }
+        p.subtitle { color: var(--teams-gray-text); margin-bottom: 20px; }
 
-        /* 玩家列表樣式 */
-        #player-list { list-style: none; padding: 0; max-width: 300px; margin: 20px auto; background: #333; border-radius: 8px; }
-        #player-list li { padding: 10px; border-bottom: 1px solid #444; }
-        #player-list li:last-child { border-bottom: none; }
+        /* 輸入框樣式 */
+        input[type="text"] {
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid var(--teams-border);
+            background-color: var(--teams-input-bg);
+            color: white;
+            font-size: 16px;
+            outline: none;
+        }
+        input[type="text"]:focus { border-color: var(--teams-purple); }
+        
+        /* 按鈕樣式 */
+        .btn {
+            padding: 8px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            border: none;
+            font-size: 15px;
+            font-weight: 600;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .btn-primary { background-color: var(--teams-purple-dark); color: white; }
+        .btn-primary:hover { background-color: #585a96; }
+        .btn-success { background-color: transparent; color: var(--teams-success); border: 1px solid var(--teams-success); }
+        .btn-success:hover { background-color: rgba(108, 203, 95, 0.1); }
 
-        canvas { background-color: #ecf0f1; border: 4px solid #7f8c8d; margin-top: 20px; border-radius: 4px; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        /* ========================
+           大廳佈局 (Flexbox)
+           ======================== */
+        .lobby-layout {
+            display: flex;
+            gap: 20px;
+            height: 500px; /* 固定高度 */
+        }
+
+        /* 左側：玩家列表 */
+        .lobby-left {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--teams-border);
+            padding-right: 20px;
+        }
+
+        #player-list {
+            list-style: none;
+            padding: 0;
+            margin: 10px 0;
+            text-align: left;
+            overflow-y: auto;
+            flex-grow: 1;
+        }
+        #player-list li {
+            padding: 10px;
+            border-bottom: 1px solid var(--teams-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* 右側：聊天室 */
+        .lobby-right {
+            flex: 1.2;
+            display: flex;
+            flex-direction: column;
+            background-color: #252424;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        
+        .chat-header {
+            padding: 10px;
+            background-color: #333;
+            font-weight: bold;
+            text-align: left;
+            border-bottom: 1px solid var(--teams-border);
+        }
+
+        .chat-messages {
+            flex-grow: 1;
+            padding: 15px;
+            overflow-y: auto;
+            text-align: left;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        /* 訊息氣泡 */
+        .message-bubble {
+            max-width: 80%;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            line-height: 1.4;
+            position: relative;
+        }
+        .msg-info {
+            font-size: 11px;
+            color: #aaa;
+            margin-bottom: 4px;
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+        }
+        
+        /* 自己的訊息 */
+        .msg-self {
+            align-self: flex-end;
+            background-color: var(--teams-purple-dark);
+            color: white;
+            border-bottom-right-radius: 2px;
+        }
+        /* 別人的訊息 */
+        .msg-other {
+            align-self: flex-start;
+            background-color: var(--teams-input-bg);
+            color: #ddd;
+            border-bottom-left-radius: 2px;
+        }
+
+        /* 聊天輸入區 */
+        .chat-input-area {
+            padding: 10px;
+            background-color: #333;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            position: relative;
+        }
+        #chat-input { flex-grow: 1; width: auto; margin-bottom: 0; }
+        
+        /* Emoji 選擇器 */
+        #emoji-btn {
+            background: none; border: none; font-size: 20px; cursor: pointer; padding: 0 5px;
+        }
+        #emoji-picker {
+            position: absolute;
+            bottom: 50px;
+            right: 10px;
+            background-color: var(--teams-card);
+            border: 1px solid var(--teams-border);
+            border-radius: 8px;
+            padding: 10px;
+            display: none;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 5px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            z-index: 100;
+        }
+        .emoji-item {
+            font-size: 20px;
+            cursor: pointer;
+            padding: 5px;
+            border-radius: 4px;
+        }
+        .emoji-item:hover { background-color: var(--teams-border); }
+
+        /* 遊戲畫布 */
+        .game-area {
+            background-color: var(--teams-card);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            display: inline-block;
+            border: 1px solid var(--teams-border);
+        }
+        canvas { background-color: #141414; border-radius: 4px; }
         
         #winner-overlay {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            background: rgba(0, 0, 0, 0.9); padding: 40px; border-radius: 10px;
+            background: rgba(32, 31, 31, 0.98); padding: 50px; border-radius: 12px;
             text-align: center; display: none; z-index: 10;
+            box-shadow: 0 6.4px 14.4px 0 rgba(0,0,0,0.5);
+            border: 1px solid var(--teams-border);
         }
-        #winner-overlay h1 { color: #f1c40f; font-size: 3em; margin: 0 0 20px 0; }
+        #winner-overlay h1 { color: var(--teams-purple); font-size: 2.5em; margin: 0 0 30px 0; }
     </style>
 </head>
 <body>
 
-    <div id="login-screen" class="screen active">
-        <h1>💣 爆爆王大亂鬥</h1>
-        <p>所有玩家將進入同一個戰場</p>
-        <input type="text" id="username" placeholder="請輸入你的暱稱" />
+    <div id="login-screen" class="screen active screen-container">
+        <h1>💥 Teams 爆爆王</h1>
+        <p class="subtitle">輸入名稱加入會議室</p>
+        <input type="text" id="username" placeholder="請輸入您的顯示名稱" />
         <br><br>
-        <button onclick="joinGame()">進入戰場</button>
+        <button class="btn btn-primary" onclick="joinGame()">加入</button>
     </div>
 
-    <div id="lobby-screen" class="screen">
-        <h2>等待室</h2>
-        <p>目前已加入的玩家：</p>
-        <ul id="player-list">
-            </ul>
-        <br>
-        <button onclick="startGame()">🚀 開始遊戲</button>
+    <div id="lobby-screen" class="screen screen-container">
+        <h2>等待大廳</h2>
+        
+        <div class="lobby-layout">
+            <div class="lobby-left">
+                <p style="text-align:left; color:var(--teams-gray-text); margin:0;">參與者</p>
+                <ul id="player-list"></ul>
+                <div id="lobby-controls" style="margin-top:auto;"></div>
+            </div>
+
+            <div class="lobby-right">
+                <div class="chat-header">會議聊天</div>
+                <div id="chat-messages" class="chat-messages">
+                    <div style="text-align:center; color:#666; font-size:12px; margin-top:10px;">
+                        歡迎加入會議聊天室
+                    </div>
+                </div>
+                
+                <div id="emoji-picker"></div>
+
+                <div class="chat-input-area">
+                    <button id="emoji-btn" onclick="toggleEmoji()">😀</button>
+                    <input type="text" id="chat-input" placeholder="輸入訊息..." onkeypress="handleChatKey(event)">
+                    <button class="btn btn-primary" style="padding: 8px 15px;" onclick="sendMessage()">➤</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div id="game-screen" class="screen">
-        <div class="info">WASD 移動 | 空白鍵 放置核彈 (十字全圖攻擊)</div>
-        <div style="position: relative; display: inline-block;">
-            <canvas id="gameCanvas" width="600" height="600"></canvas>
-            
-            <div id="winner-overlay">
-                <h1 id="winner-name">XXX 獲勝!</h1>
-                <button onclick="location.reload()">再玩一次</button>
+        <div class="game-area">
+            <div class="info" style="color:#aaa;">WASD 移動 | 空白鍵 放置炸彈</div>
+            <div style="position: relative; display: inline-block;">
+                <canvas id="gameCanvas" width="600" height="600"></canvas>
+                <div id="status-overlay" style="display:none; position:absolute; top:30px; left:50%; transform:translateX(-50%); background:rgba(45,44,44,0.9); padding:8px 20px; border-radius:20px; font-weight:bold; color:var(--teams-purple); border:1px solid var(--teams-purple);">👀 觀戰模式中</div>
+                <div id="winner-overlay">
+                    <h1 id="winner-name">XXX 獲勝!</h1>
+                    <button class="btn btn-primary" onclick="backToLobby()">回到大廳</button>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
         const socket = io();
-        
+        let isSpectator = false;
+        let mySid = ""; // 用來判斷聊天訊息是不是自己發的
+
+        // --- Emoji 清單 ---
+        const EMOJIS = ['😀', '😂', '😎', '😍', '🤔', '😭', '😡', '👍', '👎', '🎉', '💣', '👻', '🔥', '❤️', '💩'];
+
+        // 初始化 Emoji Picker
+        const emojiContainer = document.getElementById('emoji-picker');
+        EMOJIS.forEach(emo => {
+            const span = document.createElement('span');
+            span.innerText = emo;
+            span.className = 'emoji-item';
+            span.onclick = () => {
+                const input = document.getElementById('chat-input');
+                input.value += emo;
+                toggleEmoji(); // 選完關閉
+                input.focus();
+            };
+            emojiContainer.appendChild(span);
+        });
+
+        function toggleEmoji() {
+            const display = emojiContainer.style.display;
+            emojiContainer.style.display = display === 'grid' ? 'none' : 'grid';
+        }
+
+        // --- 聊天功能 ---
+        function sendMessage() {
+            const input = document.getElementById('chat-input');
+            const msg = input.value.trim();
+            if (msg) {
+                socket.emit('send_message', {msg: msg});
+                input.value = "";
+            }
+        }
+
+        function handleChatKey(e) {
+            if (e.key === 'Enter') sendMessage();
+        }
+
+        // 接收訊息
+        socket.on('new_message', (data) => {
+            const container = document.getElementById('chat-messages');
+            const div = document.createElement('div');
+            
+            // 判斷是自己還是別人
+            const isSelf = data.sid === socket.id;
+            const bubbleClass = isSelf ? 'msg-self' : 'msg-other';
+            
+            div.className = `message-bubble ${bubbleClass}`;
+            div.innerHTML = `
+                <div class="msg-info">
+                    <span>${data.name}</span>
+                    <span>${data.time}</span>
+                </div>
+                <div>${data.msg}</div>
+            `;
+            
+            container.appendChild(div);
+            // 自動捲動到底部
+            container.scrollTop = container.scrollHeight;
+        });
+
+
+        // ==========================================
+        //  原有遊戲邏輯
+        // ==========================================
         const screens = {
             login: document.getElementById('login-screen'),
             lobby: document.getElementById('lobby-screen'),
@@ -77,135 +375,202 @@
         function joinGame() {
             const name = document.getElementById('username').value;
             if(!name) return alert("請輸入暱稱");
-            
-            // 不再需要傳送 room 參數，後端會自動分配
             socket.emit('create_join', {name: name});
+        }
+
+        function sendReady() { socket.emit('toggle_ready'); }
+        function sendStart() { socket.emit('start_game', {}); }
+        
+        function backToLobby() {
+            document.getElementById('winner-overlay').style.display = "none";
             showScreen('lobby');
+            socket.emit('req_lobby_update');
         }
 
-        function startGame() {
-            socket.emit('start_game', {});
-        }
+        socket.on('connect', () => { mySid = socket.id; });
 
-        // --- 新增：接收大廳玩家列表更新 ---
         socket.on('update_lobby', (data) => {
-            const list = document.getElementById('player-list');
-            list.innerHTML = ""; // 清空
-            data.players.forEach(name => {
-                const li = document.createElement('li');
-                li.innerText = "👤 " + name;
-                list.appendChild(li);
-            });
-            
-            // 如果遊戲已經開始，直接切換過去 (給中途重整的人用，雖然本範例主要是一起開始)
-            if(data.is_running) {
-                showScreen('game');
+            if(screens.login.classList.contains('active') || screens.lobby.classList.contains('active')) {
+                if(screens.login.classList.contains('active')) showScreen('lobby');
+
+                const list = document.getElementById('player-list');
+                const controls = document.getElementById('lobby-controls');
+                list.innerHTML = "";
+                controls.innerHTML = "";
+                let isHost = false;
+                if (data.host_sid === socket.id) isHost = true;
+
+                data.players.forEach(p => {
+                    const li = document.createElement('li');
+                    let statusHtml = "";
+                    if (p.is_host) statusHtml += " <span title='房長'>👑</span>";
+                    if (p.is_ready) statusHtml += " <span class='status-icon' style='color:var(--teams-success)'>✓</span>";
+                    else if (!p.is_host) statusHtml += " <span class='status-icon' style='color:var(--teams-gray-text)'>○</span>";
+                    
+                    li.innerHTML = `<span style="font-weight:600">${p.name}</span> <div>${statusHtml}</div>`;
+                    list.appendChild(li);
+                });
+
+                if (isHost) {
+                    const startBtn = document.createElement('button');
+                    startBtn.className = "btn btn-primary";
+                    startBtn.style.width = "100%";
+                    startBtn.innerText = "🚀 開始遊戲";
+                    startBtn.onclick = sendStart;
+                    controls.appendChild(startBtn);
+                } else {
+                    const readyBtn = document.createElement('button');
+                    const me = data.players.find(p => p.name === document.getElementById('username').value);
+                    if(me && me.is_ready) {
+                         readyBtn.className = "btn btn-success";
+                         readyBtn.innerText = "✓ 取消";
+                    } else {
+                         readyBtn.className = "btn btn-primary"; 
+                         readyBtn.style.backgroundColor = "#484644"; 
+                         readyBtn.innerText = "✋ 準備";
+                    }
+                    readyBtn.style.width = "100%";
+                    readyBtn.onclick = sendReady;
+                    controls.appendChild(readyBtn);
+                }
             }
         });
 
-        // 接收遊戲狀態更新
-        socket.on('state_update', (state) => {
+        socket.on('spectator_mode', (data) => {
+            isSpectator = true;
             showScreen('game');
-            renderGame(state);
-            
-            if(state.winner) {
-                document.getElementById('winner-name').innerText = "🏆 " + state.winner + " 獲勝!";
-                document.getElementById('winner-overlay').style.display = "block";
-            } else {
-                document.getElementById('winner-overlay').style.display = "none";
+            document.getElementById('status-overlay').style.display = 'block';
+        });
+
+        socket.on('state_update', (state) => {
+            if(screens.lobby.classList.contains('active')) {
+                showScreen('game');
+                document.getElementById('status-overlay').style.display = "none";
+                isSpectator = false;
             }
+            renderGame(state);
+        });
+
+        socket.on('game_over_reset', (data) => {
+            document.getElementById('winner-name').innerHTML = "🎉<br>" + data.winner + "<br>獲勝!";
+            document.getElementById('winner-overlay').style.display = "block";
         });
 
         socket.on('error', (data) => alert(data.msg));
 
-        // --- 繪圖邏輯 ---
+        // --- 繪圖邏輯 (Pac-Man) ---
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-        const MAP_W = 12;        // 修改點: 12x12
+        const MAP_W = 12;        
         const VIEW_SIZE = 600;   
-        const CELL_SIZE = VIEW_SIZE / MAP_W; // 50px
-        const PLAYER_SIZE = 0.7; 
+        const CELL_SIZE = VIEW_SIZE / MAP_W; 
+        const CHAR_SIZE = CELL_SIZE * 0.8; 
 
         function renderGame(state) {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // 1. 畫地圖
+            // 地圖
             for(let y=0; y<MAP_W; y++) {
                 for(let x=0; x<MAP_W; x++) {
+                    const posX = x * CELL_SIZE;
+                    const posY = y * CELL_SIZE;
                     if(state.map[y][x] === 1) {
-                        ctx.fillStyle = "#7f8c8d";
-                        ctx.fillRect(x*CELL_SIZE, y*CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                        ctx.fillStyle = "#3b3a3a"; 
+                        ctx.fillRect(posX + 2, posY + 2, CELL_SIZE - 4, CELL_SIZE - 4);
                         ctx.lineWidth = 2;
-                        ctx.strokeStyle = "#95a5a6";
-                        ctx.strokeRect(x*CELL_SIZE, y*CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                        ctx.strokeStyle = "#4f4f4f";
+                        ctx.strokeRect(posX + 2, posY + 2, CELL_SIZE - 4, CELL_SIZE - 4);
                     } else {
-                        ctx.strokeStyle = "#444"; 
+                        ctx.strokeStyle = "#292828"; 
                         ctx.lineWidth = 1;
-                        ctx.strokeRect(x*CELL_SIZE, y*CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                        ctx.beginPath();
+                        ctx.moveTo(posX + CELL_SIZE, posY);
+                        ctx.lineTo(posX + CELL_SIZE, posY + CELL_SIZE);
+                        ctx.lineTo(posX, posY + CELL_SIZE);
+                        ctx.stroke();
                     }
                 }
             }
 
-            // 2. 畫炸彈
+            // 炸彈
             state.bombs.forEach(b => {
                 const cx = b.x * CELL_SIZE + CELL_SIZE/2;
                 const cy = b.y * CELL_SIZE + CELL_SIZE/2;
-                ctx.fillStyle = "black";
+                const bombRadius = CELL_SIZE * 0.4;
+                ctx.fillStyle = "#000000";
                 ctx.beginPath();
-                ctx.arc(cx, cy, CELL_SIZE/2 - 4, 0, Math.PI*2);
+                ctx.arc(cx, cy, bombRadius, 0, Math.PI*2);
                 ctx.fill();
-                ctx.fillStyle = "red"; // 閃爍燈
+                const time = Date.now() / 150;
+                const glowSize = bombRadius + Math.sin(time) * 3;
+                ctx.strokeStyle = "rgba(209, 52, 56, 0.5)";
+                ctx.lineWidth = 3;
                 ctx.beginPath();
-                ctx.arc(cx - 5, cy - 5, 4, 0, Math.PI*2);
+                ctx.arc(cx, cy, glowSize, 0, Math.PI*2);
+                ctx.stroke();
+                ctx.fillStyle = "#d13438"; 
+                ctx.beginPath();
+                ctx.arc(cx, cy - bombRadius*0.2, 5, 0, Math.PI*2);
                 ctx.fill();
             });
 
-            // 3. 畫爆炸
+            // 爆炸
+            ctx.fillStyle = "rgba(255, 87, 87, 0.8)";
             state.explosions.forEach(exp => {
-                ctx.fillStyle = "rgba(231, 76, 60, 0.8)";
                 ctx.fillRect(exp.x*CELL_SIZE, exp.y*CELL_SIZE, CELL_SIZE, CELL_SIZE);
             });
 
-            // 4. 畫玩家
+            // 玩家 (Pac-Man)
             for (const [sid, p] of Object.entries(state.players)) {
                 if(!p.alive) continue;
-                const px = p.x * CELL_SIZE;
-                const py = p.y * CELL_SIZE;
-                const pSize = PLAYER_SIZE * CELL_SIZE;
-
+                
+                const centerX = p.x * CELL_SIZE + CELL_SIZE/2;
+                const centerY = p.y * CELL_SIZE + CELL_SIZE/2;
+                const radius = CHAR_SIZE / 2;
+                const time = Date.now() / 100;
+                const mouthOpen = p.is_moving ? (0.2 + 0.2 * Math.sin(time * 2)) : 0.1; 
+                let rotation = 0;
+                if (p.face_dir) {
+                    rotation = Math.atan2(p.face_dir[1], p.face_dir[0]);
+                }
                 ctx.fillStyle = p.color;
                 ctx.beginPath();
-                ctx.roundRect(px, py, pSize, pSize, 8);
-                ctx.fill();
-                
-                // 眼睛
-                ctx.fillStyle = "white";
-                ctx.beginPath();
-                ctx.arc(px + pSize*0.3, py + pSize*0.3, 5, 0, Math.PI*2);
-                ctx.arc(px + pSize*0.7, py + pSize*0.3, 5, 0, Math.PI*2);
-                ctx.fill();
-                ctx.fillStyle = "black";
-                ctx.beginPath();
-                ctx.arc(px + pSize*0.3 + p.dx*3, py + pSize*0.3 + p.dy*3, 2, 0, Math.PI*2);
-                ctx.arc(px + pSize*0.7 + p.dx*3, py + pSize*0.3 + p.dy*3, 2, 0, Math.PI*2);
+                ctx.arc(centerX, centerY, radius, rotation + mouthOpen * Math.PI, rotation + (2 - mouthOpen) * Math.PI);
+                ctx.lineTo(centerX, centerY);
                 ctx.fill();
 
-                ctx.fillStyle = "white";
-                ctx.font = "bold 14px Arial";
+                const eyeOffsetX = Math.cos(rotation - Math.PI/2) * radius * 0.4; 
+                const eyeOffsetY = Math.sin(rotation - Math.PI/2) * radius * 0.4;
+                const eyeX = centerX + Math.cos(rotation) * radius * 0.2 + eyeOffsetX;
+                const eyeY = centerY + Math.sin(rotation) * radius * 0.2 + eyeOffsetY;
+                ctx.fillStyle = "#000";
+                ctx.beginPath();
+                ctx.arc(eyeX, eyeY, radius * 0.15, 0, Math.PI*2);
+                ctx.fill();
+                
+                ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+                ctx.fillRect(centerX - 30, centerY - radius - 20, 60, 16);
+                ctx.fillStyle = "#fff";
+                ctx.font = "bold 11px Arial";
                 ctx.textAlign = "center";
-                ctx.fillText(p.name, px + pSize/2, py - 8);
+                ctx.fillText(p.name, centerX, centerY - radius - 8);
             }
         }
 
         const keysPressed = {};
         document.addEventListener('keydown', (e) => {
             if(!screens.game.classList.contains('active')) return;
+            if(isSpectator) return;
+            // 如果焦點在輸入框，不觸發遊戲控制
+            if(document.activeElement === document.getElementById('chat-input')) return;
+            
             if(keysPressed[e.key]) return;
             keysPressed[e.key] = true;
             socket.emit('key_down', {key: e.key});
         });
         document.addEventListener('keyup', (e) => {
             if(!screens.game.classList.contains('active')) return;
+            if(isSpectator) return;
             keysPressed[e.key] = false;
             socket.emit('key_up', {key: e.key});
         });
