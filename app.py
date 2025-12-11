@@ -5,7 +5,7 @@ from flask_socketio import SocketIO, emit, join_room
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
-# 增加 max_http_buffer_size 以允許圖片上傳 (預設是 1MB，我們稍微加大保險，雖然前端會壓縮)
+# 增加 max_http_buffer_size 以允許圖片上傳
 socketio = SocketIO(app, cors_allowed_origins="*", max_http_buffer_size=5 * 1024 * 1024)
 
 # --- 遊戲參數 ---
@@ -13,7 +13,7 @@ MAP_SIZE = 12
 PLAYER_SPEED = 0.25
 BOMB_TIMER = 3
 EXPLOSION_DURATION = 1
-MAX_BOMBS = 2 
+MAX_BOMBS = 3 
 FPS = 30
 FRAME_TIME = 1.0 / FPS
 
@@ -111,7 +111,6 @@ class GameState:
                     p['target_y'] = ry
                     break
 
-    # --- 修改：新增 avatar 參數 ---
     def add_player(self, sid, name, avatar=None):
         if not self.players:
             self.host_sid = sid
@@ -121,7 +120,7 @@ class GameState:
             if self.map_data[ry][rx] == 0:
                 self.players[sid] = {
                     'name': name,
-                    'avatar': avatar, # 儲存頭像 (Base64 string)
+                    'avatar': avatar,
                     'x': rx,
                     'y': ry,
                     'target_x': rx,
@@ -199,6 +198,7 @@ class GameState:
     def update(self):
         current_time = time.time()
         
+        # 1. 玩家移動處理 (維持不變)
         for sid, p in self.players.items():
             if not p['alive']: continue
             if p['is_moving']:
@@ -233,32 +233,77 @@ class GameState:
                     p['is_moving'] = True
                     p['face_dir'] = p['input_dir']
 
-        new_bombs = []
+        # --- 炸彈與連鎖爆炸處理 (重點修改) ---
+        
+        # 1. 區分「時間到要爆的」和「還沒要爆的」
+        bombs_to_explode = []
+        remaining_bombs_map = {} # 用 dict 方便快速查詢座標 (x, y) -> bomb
+        
         for b in self.bombs:
             if current_time - b['timestamp'] > BOMB_TIMER:
-                range_len = MAP_SIZE 
-                explodes = [{'x': b['x'], 'y': b['y']}]
-                directions = [(0,1), (0,-1), (1,0), (-1,0)]
-                for dx, dy in directions:
-                    for i in range(1, range_len + 1):
-                        ex, ey = b['x'] + dx * i, b['y'] + dy * i
-                        if 0 <= ex < MAP_SIZE and 0 <= ey < MAP_SIZE:
-                            block_type = self.map_data[ey][ex]
-                            if block_type == 1: 
-                                break
-                            elif block_type == 2:
-                                self.map_data[ey][ex] = 0
-                                explodes.append({'x': ex, 'y': ey})
-                                break 
-                            else:
-                                explodes.append({'x': ex, 'y': ey})
-                        else: break 
-                for exp in explodes:
-                    self.explosions.append({'x': exp['x'], 'y': exp['y'], 'timestamp': current_time})
+                bombs_to_explode.append(b)
             else:
-                new_bombs.append(b)
-        self.bombs = new_bombs
+                remaining_bombs_map[(b['x'], b['y'])] = b
 
+        # 2. 開始連鎖爆炸計算
+        # 使用 Queue 來處理連鎖 (BFS 概念)
+        # bombs_to_explode 是我們的 Queue，我們會不斷往裡面加東西
+        
+        # 為了避免無窮迴圈(A炸B, B炸A)，我們不需要特別的 visited，
+        # 因為只要炸彈被觸發，就會從 remaining_bombs_map 移除，不會被炸第二次。
+        
+        processed_explosions = [] # 最終產生的所有火光
+        
+        i = 0
+        while i < len(bombs_to_explode):
+            b = bombs_to_explode[i]
+            i += 1
+            
+            # 炸彈中心
+            processed_explosions.append({'x': b['x'], 'y': b['y'], 'timestamp': current_time})
+            
+            # 計算四個方向的火光
+            range_len = MAP_SIZE # 全圖攻擊
+            directions = [(0,1), (0,-1), (1,0), (-1,0)]
+            
+            for dx, dy in directions:
+                for dist in range(1, range_len + 1):
+                    ex, ey = b['x'] + dx * dist, b['y'] + dy * dist
+                    
+                    if 0 <= ex < MAP_SIZE and 0 <= ey < MAP_SIZE:
+                        # 檢查：這裡有沒有硬牆？
+                        if self.map_data[ey][ex] == 1:
+                            break # 火光停止
+                        
+                        # 檢查：這裡有沒有軟牆？
+                        elif self.map_data[ey][ex] == 2:
+                            self.map_data[ey][ex] = 0 # 炸毀
+                            processed_explosions.append({'x': ex, 'y': ey, 'timestamp': current_time})
+                            break # 火光停止 (因為炸到牆了)
+                        
+                        # 檢查：這裡有沒有別的炸彈？ (誘爆邏輯)
+                        elif (ex, ey) in remaining_bombs_map:
+                            # 觸發連鎖！
+                            chained_bomb = remaining_bombs_map.pop((ex, ey)) # 取出並移除
+                            bombs_to_explode.append(chained_bomb) # 加入待爆清單，等下就會輪到它算火光
+                            # 炸彈被誘爆時，火光會繼續穿過去嗎？通常會覆蓋炸彈這格
+                            processed_explosions.append({'x': ex, 'y': ey, 'timestamp': current_time})
+                            # 注意：如果希望火光穿過炸彈繼續延伸，這裡不要 break
+                            # 如果希望炸彈擋住火光(像牆一樣)，這裡要 break
+                            # 爆爆王規則通常是：火光會覆蓋這顆炸彈，然後這顆炸彈產生新的十字火光
+                            # 所以這裡不 break，繼續往下畫火光
+                        
+                        else:
+                            # 普通地板
+                            processed_explosions.append({'x': ex, 'y': ey, 'timestamp': current_time})
+                    else:
+                        break # 超出邊界
+
+        # 3. 更新狀態
+        self.bombs = list(remaining_bombs_map.values()) # 剩下的炸彈
+        self.explosions.extend(processed_explosions) # 加入新產生的爆炸
+
+        # 4. 清除過期的爆炸 & 判定玩家死亡
         active_explosions = []
         for exp in self.explosions:
             if current_time - exp['timestamp'] < EXPLOSION_DURATION:
@@ -285,7 +330,7 @@ def broadcast_lobby_state(room, game):
     for sid, p in game.players.items():
         lobby_data.append({
             'name': p['name'],
-            'avatar': p.get('avatar'), # 傳送頭像資料給大廳列表
+            'avatar': p.get('avatar'),
             'is_host': (sid == game.host_sid),
             'is_ready': p['is_ready']
         })
@@ -307,13 +352,13 @@ def on_send_message(data):
         if request.sid in game.players:
             p = game.players[request.sid]
             sender_name = p['name']
-            sender_avatar = p.get('avatar') # 取得頭像
+            sender_avatar = p.get('avatar')
             msg = data['msg']
             t = time.localtime()
             time_str = f"{t.tm_hour:02d}:{t.tm_min:02d}"
             emit('new_message', {
                 'name': sender_name,
-                'avatar': sender_avatar, # 傳給前端聊天室
+                'avatar': sender_avatar,
                 'msg': msg,
                 'time': time_str,
                 'sid': request.sid
@@ -337,7 +382,7 @@ def on_disconnect():
 @socketio.on('create_join')
 def on_join(data):
     name = data['name']
-    avatar = data.get('avatar') # 接收前端傳來的頭像
+    avatar = data.get('avatar') 
     room = DEFAULT_ROOM 
     join_room(room)
     if room not in ROOMS: ROOMS[room] = GameState()
@@ -348,7 +393,6 @@ def on_join(data):
         if len(game.players) >= 8:
             emit('error', {'msg': '房間已滿'})
             return
-        # 將頭像傳入
         game.add_player(request.sid, name, avatar)
         broadcast_lobby_state(room, game)
 

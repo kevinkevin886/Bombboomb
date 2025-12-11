@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Teams 爆爆王 (Avatar)</title>
+    <title>我的學習</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <style>
         /* --- Teams Dark Mode 風格 (維持不變) --- */
@@ -155,7 +155,7 @@
 <body>
 
     <div id="login-screen" class="screen active screen-container">
-        <h1>💥 Teams 爆爆王</h1>
+        <h1>抒壓室</h1>
         <p class="subtitle">設定您的個人檔案</p>
         
         <div class="avatar-upload-container">
@@ -348,16 +348,20 @@
         socket.on('connect', () => { mySid = socket.id; });
 
         socket.on('update_lobby', (data) => {
+            // 確保只在相關畫面更新
             if(screens.login.classList.contains('active') || screens.lobby.classList.contains('active')) {
+                // 如果原本在登入畫面，跳轉到大廳
                 if(screens.login.classList.contains('active')) showScreen('lobby');
 
                 const list = document.getElementById('player-list');
                 const controls = document.getElementById('lobby-controls');
                 list.innerHTML = "";
                 controls.innerHTML = "";
+                
                 let isHost = false;
                 if (data.host_sid === socket.id) isHost = true;
 
+                // 繪製玩家列表
                 data.players.forEach(p => {
                     const li = document.createElement('li');
                     let statusHtml = "";
@@ -383,6 +387,7 @@
                     list.appendChild(li);
                 });
 
+                // --- 按鈕邏輯修正區 ---
                 if (isHost) {
                     const startBtn = document.createElement('button');
                     startBtn.className = "btn btn-primary";
@@ -392,13 +397,24 @@
                     controls.appendChild(startBtn);
                 } else {
                     const readyBtn = document.createElement('button');
-                    const me = data.players.find(p => p.name === document.getElementById('username').value); // 此處判斷僅供參考，實際應依賴UI邏輯
-                    // 簡單切換文字
-                    readyBtn.className = "btn btn-primary"; 
-                    readyBtn.style.backgroundColor = "#484644"; 
-                    readyBtn.innerText = "✋ 準備 / 取消";
                     readyBtn.style.width = "100%";
                     readyBtn.onclick = sendReady;
+
+                    // 找出「我自己」在玩家列表中的狀態
+                    const myName = document.getElementById('username').value;
+                    const me = data.players.find(p => p.name === myName);
+
+                    if(me && me.is_ready) {
+                         // 狀態：已準備 -> 顯示：取消準備 (綠色)
+                         readyBtn.className = "btn btn-success";
+                         readyBtn.innerText = "✓ 取消準備";
+                    } else {
+                         // 狀態：未準備 -> 顯示：準備 (深灰色)
+                         readyBtn.className = "btn btn-primary"; 
+                         readyBtn.style.backgroundColor = "#484644"; 
+                         readyBtn.innerText = "✋ 準備";
+                    }
+                    
                     controls.appendChild(readyBtn);
                 }
             }
