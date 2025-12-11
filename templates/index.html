@@ -3,22 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Teams 爆爆王 (Dark)</title>
+    <title>Teams 爆爆王 (Avatar)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <style>
-        /* --- Teams Dark Mode 風格 --- */
+        /* --- Teams Dark Mode 風格 (維持不變) --- */
         :root {
-            --teams-bg: #1f1f1f;          /* 極深灰背景 */
-            --teams-card: #2d2c2c;        /* 深灰卡片 */
-            --teams-purple: #8B8CC7;      /* 較亮的紫色 */
-            --teams-purple-dark: #6264A7; /* 深紫色 (按鈕) */
-            --teams-text: #ffffff;        /* 白色文字 */
-            --teams-gray-text: #adadad;   /* 淺灰文字 */
-            --teams-border: #3b3a3a;      /* 邊框色 */
-            --teams-success: #6CCB5F;     /* 亮綠色 */
-            --teams-input-bg: #3b3a3a;    /* 輸入框背景 */
-            --chat-bubble-self: #3d3e5e;  /* 自己發話背景 */
-            --chat-bubble-other: #3b3a3a; /* 別人發話背景 */
+            --teams-bg: #1f1f1f;
+            --teams-card: #2d2c2c;
+            --teams-purple: #8B8CC7;
+            --teams-purple-dark: #6264A7;
+            --teams-text: #ffffff;
+            --teams-gray-text: #adadad;
+            --teams-border: #3b3a3a;
+            --teams-success: #6CCB5F;
+            --teams-input-bg: #3b3a3a;
+            --chat-bubble-self: #3d3e5e;
+            --chat-bubble-other: #3b3a3a;
         }
 
         body {
@@ -33,7 +33,6 @@
             min-height: 100vh;
         }
         
-        /* 通用卡片容器 */
         .screen-container {
             background-color: var(--teams-card);
             padding: 30px;
@@ -44,10 +43,7 @@
             border: 1px solid var(--teams-border);
         }
         
-        /* 登入畫面專用寬度 */
         #login-screen { max-width: 400px; }
-
-        /* 大廳畫面專用寬度 (變寬以容納聊天室) */
         #lobby-screen { max-width: 900px; padding: 20px; }
 
         .screen { display: none; }
@@ -56,7 +52,6 @@
         h1, h2 { color: var(--teams-purple); margin-top: 0; }
         p.subtitle { color: var(--teams-gray-text); margin-bottom: 20px; }
 
-        /* 輸入框樣式 */
         input[type="text"] {
             padding: 10px;
             border-radius: 4px;
@@ -68,7 +63,6 @@
         }
         input[type="text"]:focus { border-color: var(--teams-purple); }
         
-        /* 按鈕樣式 */
         .btn {
             padding: 8px 20px;
             border-radius: 4px;
@@ -86,156 +80,75 @@
         .btn-success { background-color: transparent; color: var(--teams-success); border: 1px solid var(--teams-success); }
         .btn-success:hover { background-color: rgba(108, 203, 95, 0.1); }
 
-        /* ========================
-           大廳佈局 (Flexbox)
-           ======================== */
-        .lobby-layout {
-            display: flex;
-            gap: 20px;
-            height: 500px; /* 固定高度 */
-        }
-
-        /* 左側：玩家列表 */
-        .lobby-left {
-            flex: 1;
+        /* --- 新增：頭像相關樣式 --- */
+        .avatar-upload-container {
+            margin-bottom: 20px;
             display: flex;
             flex-direction: column;
-            border-right: 1px solid var(--teams-border);
-            padding-right: 20px;
-        }
-
-        #player-list {
-            list-style: none;
-            padding: 0;
-            margin: 10px 0;
-            text-align: left;
-            overflow-y: auto;
-            flex-grow: 1;
-        }
-        #player-list li {
-            padding: 10px;
-            border-bottom: 1px solid var(--teams-border);
-            display: flex;
-            justify-content: space-between;
             align-items: center;
-        }
-
-        /* 右側：聊天室 */
-        .lobby-right {
-            flex: 1.2;
-            display: flex;
-            flex-direction: column;
-            background-color: #252424;
-            border-radius: 6px;
-            overflow: hidden;
-        }
-        
-        .chat-header {
-            padding: 10px;
-            background-color: #333;
-            font-weight: bold;
-            text-align: left;
-            border-bottom: 1px solid var(--teams-border);
-        }
-
-        .chat-messages {
-            flex-grow: 1;
-            padding: 15px;
-            overflow-y: auto;
-            text-align: left;
-            display: flex;
-            flex-direction: column;
             gap: 10px;
         }
-
-        /* 訊息氣泡 */
-        .message-bubble {
-            max-width: 80%;
-            padding: 8px 12px;
-            border-radius: 8px;
+        #avatar-preview {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 2px solid var(--teams-purple);
+            background-color: #444;
+        }
+        .avatar-small {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            object-fit: cover;
+            margin-right: 10px;
+            border: 1px solid #555;
+            background-color: #444;
+        }
+        input[type="file"] {
+            display: none;
+        }
+        .upload-btn {
+            color: var(--teams-purple);
+            cursor: pointer;
             font-size: 14px;
-            line-height: 1.4;
-            position: relative;
-        }
-        .msg-info {
-            font-size: 11px;
-            color: #aaa;
-            margin-bottom: 4px;
-            display: flex;
-            justify-content: space-between;
-            gap: 10px;
-        }
-        
-        /* 自己的訊息 */
-        .msg-self {
-            align-self: flex-end;
-            background-color: var(--teams-purple-dark);
-            color: white;
-            border-bottom-right-radius: 2px;
-        }
-        /* 別人的訊息 */
-        .msg-other {
-            align-self: flex-start;
-            background-color: var(--teams-input-bg);
-            color: #ddd;
-            border-bottom-left-radius: 2px;
+            text-decoration: underline;
         }
 
-        /* 聊天輸入區 */
-        .chat-input-area {
-            padding: 10px;
-            background-color: #333;
+        /* Lobby Layout */
+        .lobby-layout { display: flex; gap: 20px; height: 500px; }
+        .lobby-left { flex: 1; display: flex; flex-direction: column; border-right: 1px solid var(--teams-border); padding-right: 20px; }
+        
+        #player-list { list-style: none; padding: 0; margin: 10px 0; text-align: left; overflow-y: auto; flex-grow: 1; }
+        #player-list li { padding: 10px; border-bottom: 1px solid var(--teams-border); display: flex; justify-content: space-between; align-items: center; }
+        
+        /* 玩家名稱區域 (包含頭像) */
+        .player-info-cell {
             display: flex;
-            gap: 8px;
             align-items: center;
-            position: relative;
         }
+
+        .lobby-right { flex: 1.2; display: flex; flex-direction: column; background-color: #252424; border-radius: 6px; overflow: hidden; }
+        .chat-header { padding: 10px; background-color: #333; font-weight: bold; text-align: left; border-bottom: 1px solid var(--teams-border); }
+        .chat-messages { flex-grow: 1; padding: 15px; overflow-y: auto; text-align: left; display: flex; flex-direction: column; gap: 10px; }
+        
+        .message-bubble { max-width: 80%; padding: 8px 12px; border-radius: 8px; font-size: 14px; line-height: 1.4; position: relative; }
+        .msg-info { font-size: 11px; color: #aaa; margin-bottom: 4px; display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+        .msg-self { align-self: flex-end; background-color: var(--teams-purple-dark); color: white; border-bottom-right-radius: 2px; }
+        .msg-other { align-self: flex-start; background-color: var(--teams-input-bg); color: #ddd; border-bottom-left-radius: 2px; }
+
+        .chat-input-area { padding: 10px; background-color: #333; display: flex; gap: 8px; align-items: center; position: relative; }
         #chat-input { flex-grow: 1; width: auto; margin-bottom: 0; }
         
-        /* Emoji 選擇器 */
-        #emoji-btn {
-            background: none; border: none; font-size: 20px; cursor: pointer; padding: 0 5px;
-        }
-        #emoji-picker {
-            position: absolute;
-            bottom: 50px;
-            right: 10px;
-            background-color: var(--teams-card);
-            border: 1px solid var(--teams-border);
-            border-radius: 8px;
-            padding: 10px;
-            display: none;
-            grid-template-columns: repeat(5, 1fr);
-            gap: 5px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-            z-index: 100;
-        }
-        .emoji-item {
-            font-size: 20px;
-            cursor: pointer;
-            padding: 5px;
-            border-radius: 4px;
-        }
+        #emoji-btn { background: none; border: none; font-size: 20px; cursor: pointer; padding: 0 5px; }
+        #emoji-picker { position: absolute; bottom: 50px; right: 10px; background-color: var(--teams-card); border: 1px solid var(--teams-border); border-radius: 8px; padding: 10px; display: none; grid-template-columns: repeat(5, 1fr); gap: 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index: 100; }
+        .emoji-item { font-size: 20px; cursor: pointer; padding: 5px; border-radius: 4px; }
         .emoji-item:hover { background-color: var(--teams-border); }
 
-        /* 遊戲畫布 */
-        .game-area {
-            background-color: var(--teams-card);
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-            display: inline-block;
-            border: 1px solid var(--teams-border);
-        }
+        .game-area { background-color: var(--teams-card); padding: 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); display: inline-block; border: 1px solid var(--teams-border); }
         canvas { background-color: #141414; border-radius: 4px; }
         
-        #winner-overlay {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            background: rgba(32, 31, 31, 0.98); padding: 50px; border-radius: 12px;
-            text-align: center; display: none; z-index: 10;
-            box-shadow: 0 6.4px 14.4px 0 rgba(0,0,0,0.5);
-            border: 1px solid var(--teams-border);
-        }
+        #winner-overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(32, 31, 31, 0.98); padding: 50px; border-radius: 12px; text-align: center; display: none; z-index: 10; box-shadow: 0 6.4px 14.4px 0 rgba(0,0,0,0.5); border: 1px solid var(--teams-border); }
         #winner-overlay h1 { color: var(--teams-purple); font-size: 2.5em; margin: 0 0 30px 0; }
     </style>
 </head>
@@ -243,32 +156,33 @@
 
     <div id="login-screen" class="screen active screen-container">
         <h1>💥 Teams 爆爆王</h1>
-        <p class="subtitle">輸入名稱加入會議室</p>
+        <p class="subtitle">設定您的個人檔案</p>
+        
+        <div class="avatar-upload-container">
+            <img id="avatar-preview" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iI2ZmZCIgLz48dGV4dCB4PSI1MCIgeT0iNTUiIGZvbnQtc2l6ZT0iMTIiIHRleHQtYW5jaG9yPSJtaWRkbGUiPuacqueFp+eJhzwvdGV4dD48L3N2Zz4=">
+            <label for="avatar-input" class="upload-btn">上傳頭像</label>
+            <input type="file" id="avatar-input" accept="image/*" onchange="previewAvatar(this)">
+        </div>
+
         <input type="text" id="username" placeholder="請輸入您的顯示名稱" />
         <br><br>
-        <button class="btn btn-primary" onclick="joinGame()">加入</button>
+        <button class="btn btn-primary" onclick="joinGame()">加入會議</button>
     </div>
 
     <div id="lobby-screen" class="screen screen-container">
         <h2>等待大廳</h2>
-        
         <div class="lobby-layout">
             <div class="lobby-left">
                 <p style="text-align:left; color:var(--teams-gray-text); margin:0;">參與者</p>
                 <ul id="player-list"></ul>
                 <div id="lobby-controls" style="margin-top:auto;"></div>
             </div>
-
             <div class="lobby-right">
                 <div class="chat-header">會議聊天</div>
                 <div id="chat-messages" class="chat-messages">
-                    <div style="text-align:center; color:#666; font-size:12px; margin-top:10px;">
-                        歡迎加入會議聊天室
-                    </div>
+                    <div style="text-align:center; color:#666; font-size:12px; margin-top:10px;">歡迎加入</div>
                 </div>
-                
                 <div id="emoji-picker"></div>
-
                 <div class="chat-input-area">
                     <button id="emoji-btn" onclick="toggleEmoji()">😀</button>
                     <input type="text" id="chat-input" placeholder="輸入訊息..." onkeypress="handleChatKey(event)">
@@ -295,12 +209,63 @@
     <script>
         const socket = io();
         let isSpectator = false;
-        let mySid = ""; // 用來判斷聊天訊息是不是自己發的
+        let mySid = "";
+        let finalAvatarBase64 = null; // 儲存壓縮後的頭像數據
 
-        // --- Emoji 清單 ---
+        // --- 圖片上傳與壓縮邏輯 ---
+        function previewAvatar(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    // 顯示預覽 (原始大小)
+                    document.getElementById('avatar-preview').src = e.target.result;
+                }
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        function compressAndJoin(name) {
+            const input = document.getElementById('avatar-input');
+            if (input.files && input.files[0]) {
+                // 有上傳圖片，進行壓縮
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = new Image();
+                    img.src = e.target.result;
+                    img.onload = function() {
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        // 設定壓縮後的大小 (例如 100x100)
+                        const MAX_SIZE = 100; 
+                        canvas.width = MAX_SIZE;
+                        canvas.height = MAX_SIZE;
+                        
+                        // 畫到 Canvas 上 (自動縮放)
+                        ctx.drawImage(img, 0, 0, MAX_SIZE, MAX_SIZE);
+                        
+                        // 轉回 Base64 (JPEG 格式, 品質 0.8)
+                        finalAvatarBase64 = canvas.toDataURL('image/jpeg', 0.8);
+                        
+                        // 發送 socket
+                        socket.emit('create_join', {name: name, avatar: finalAvatarBase64});
+                    }
+                }
+                reader.readAsDataURL(input.files[0]);
+            } else {
+                // 沒上傳圖片，傳送 null
+                socket.emit('create_join', {name: name, avatar: null});
+            }
+        }
+
+        // --- 加入遊戲 ---
+        function joinGame() {
+            const name = document.getElementById('username').value;
+            if(!name) return alert("請輸入暱稱");
+            compressAndJoin(name); // 改呼叫壓縮函式
+        }
+
+        // --- 聊天與 Emoji ---
         const EMOJIS = ['😀', '😂', '😎', '😍', '🤔', '😭', '😡', '👍', '👎', '🎉', '💣', '👻', '🔥', '❤️', '💩'];
-
-        // 初始化 Emoji Picker
         const emojiContainer = document.getElementById('emoji-picker');
         EMOJIS.forEach(emo => {
             const span = document.createElement('span');
@@ -309,7 +274,7 @@
             span.onclick = () => {
                 const input = document.getElementById('chat-input');
                 input.value += emo;
-                toggleEmoji(); // 選完關閉
+                toggleEmoji();
                 input.focus();
             };
             emojiContainer.appendChild(span);
@@ -320,7 +285,6 @@
             emojiContainer.style.display = display === 'grid' ? 'none' : 'grid';
         }
 
-        // --- 聊天功能 ---
         function sendMessage() {
             const input = document.getElementById('chat-input');
             const msg = input.value.trim();
@@ -329,58 +293,52 @@
                 input.value = "";
             }
         }
+        function handleChatKey(e) { if (e.key === 'Enter') sendMessage(); }
 
-        function handleChatKey(e) {
-            if (e.key === 'Enter') sendMessage();
-        }
-
-        // 接收訊息
         socket.on('new_message', (data) => {
             const container = document.getElementById('chat-messages');
             const div = document.createElement('div');
-            
-            // 判斷是自己還是別人
             const isSelf = data.sid === socket.id;
             const bubbleClass = isSelf ? 'msg-self' : 'msg-other';
             
+            // 處理頭像顯示
+            let avatarHtml = '';
+            if (data.avatar) {
+                avatarHtml = `<img src="${data.avatar}" class="avatar-small">`;
+            } else {
+                // 預設頭像 (簡單色塊)
+                avatarHtml = `<div class="avatar-small" style="display:inline-block; vertical-align:middle; background:#666; text-align:center; line-height:32px; font-size:12px;">無</div>`;
+            }
+
+            // 自己發的訊息頭像在右邊，別人的在左邊 (這裡簡化，統一顯示在名稱旁)
             div.className = `message-bubble ${bubbleClass}`;
             div.innerHTML = `
                 <div class="msg-info">
-                    <span>${data.name}</span>
+                    <div style="display:flex; align-items:center;">
+                        ${!isSelf ? avatarHtml : ''} 
+                        <span style="${isSelf?'':'margin-left:0px'}">${data.name}</span>
+                        ${isSelf ? avatarHtml : ''}
+                    </div>
                     <span>${data.time}</span>
                 </div>
                 <div>${data.msg}</div>
             `;
-            
             container.appendChild(div);
-            // 自動捲動到底部
             container.scrollTop = container.scrollHeight;
         });
 
-
-        // ==========================================
-        //  原有遊戲邏輯
-        // ==========================================
+        // --- 遊戲邏輯 ---
         const screens = {
             login: document.getElementById('login-screen'),
             lobby: document.getElementById('lobby-screen'),
             game: document.getElementById('game-screen')
         };
-
         function showScreen(name) {
             Object.values(screens).forEach(s => s.classList.remove('active'));
             screens[name].classList.add('active');
         }
-
-        function joinGame() {
-            const name = document.getElementById('username').value;
-            if(!name) return alert("請輸入暱稱");
-            socket.emit('create_join', {name: name});
-        }
-
         function sendReady() { socket.emit('toggle_ready'); }
         function sendStart() { socket.emit('start_game', {}); }
-        
         function backToLobby() {
             document.getElementById('winner-overlay').style.display = "none";
             showScreen('lobby');
@@ -407,7 +365,21 @@
                     if (p.is_ready) statusHtml += " <span class='status-icon' style='color:var(--teams-success)'>✓</span>";
                     else if (!p.is_host) statusHtml += " <span class='status-icon' style='color:var(--teams-gray-text)'>○</span>";
                     
-                    li.innerHTML = `<span style="font-weight:600">${p.name}</span> <div>${statusHtml}</div>`;
+                    // 顯示頭像
+                    let avatarImg = "";
+                    if(p.avatar) {
+                        avatarImg = `<img src="${p.avatar}" class="avatar-small">`;
+                    } else {
+                        avatarImg = `<div class="avatar-small" style="display:inline-block;"></div>`;
+                    }
+
+                    li.innerHTML = `
+                        <div class="player-info-cell">
+                            ${avatarImg}
+                            <span style="font-weight:600">${p.name}</span>
+                        </div>
+                        <div>${statusHtml}</div>
+                    `;
                     list.appendChild(li);
                 });
 
@@ -420,15 +392,11 @@
                     controls.appendChild(startBtn);
                 } else {
                     const readyBtn = document.createElement('button');
-                    const me = data.players.find(p => p.name === document.getElementById('username').value);
-                    if(me && me.is_ready) {
-                         readyBtn.className = "btn btn-success";
-                         readyBtn.innerText = "✓ 取消";
-                    } else {
-                         readyBtn.className = "btn btn-primary"; 
-                         readyBtn.style.backgroundColor = "#484644"; 
-                         readyBtn.innerText = "✋ 準備";
-                    }
+                    const me = data.players.find(p => p.name === document.getElementById('username').value); // 此處判斷僅供參考，實際應依賴UI邏輯
+                    // 簡單切換文字
+                    readyBtn.className = "btn btn-primary"; 
+                    readyBtn.style.backgroundColor = "#484644"; 
+                    readyBtn.innerText = "✋ 準備 / 取消";
                     readyBtn.style.width = "100%";
                     readyBtn.onclick = sendReady;
                     controls.appendChild(readyBtn);
@@ -458,7 +426,7 @@
 
         socket.on('error', (data) => alert(data.msg));
 
-        // --- 繪圖邏輯 (Pac-Man) ---
+        // --- 繪圖邏輯 (Avatar Support) ---
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const MAP_W = 12;        
@@ -466,51 +434,32 @@
         const CELL_SIZE = VIEW_SIZE / MAP_W; 
         const CHAR_SIZE = CELL_SIZE * 0.8; 
 
+        // 圖片緩存： { 'base64str': ImageObject }
+        // 避免每次 render 都 new Image()
+        const imgCache = {};
+
         function renderGame(state) {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             // 地圖
-            // 1. 畫地圖
             for(let y=0; y<MAP_W; y++) {
                 for(let x=0; x<MAP_W; x++) {
                     const posX = x * CELL_SIZE;
                     const posY = y * CELL_SIZE;
-                    const cellType = state.map[y][x];
-
-                    if(cellType === 1) {
-                        // --- 硬牆 (不可破壞) ---
-                        // 畫成深色金屬或石塊感
+                    if(state.map[y][x] === 1) {
                         ctx.fillStyle = "#3b3a3a"; 
                         ctx.fillRect(posX + 2, posY + 2, CELL_SIZE - 4, CELL_SIZE - 4);
                         ctx.lineWidth = 2;
-                        ctx.strokeStyle = "#4f4f4f"; // 金屬邊框
+                        ctx.strokeStyle = "#4f4f4f";
                         ctx.strokeRect(posX + 2, posY + 2, CELL_SIZE - 4, CELL_SIZE - 4);
-                        
-                        // 加上一個"X"或鉚釘裝飾表示堅硬
-                        ctx.beginPath();
-                        ctx.moveTo(posX + 8, posY + 8);
-                        ctx.lineTo(posX + CELL_SIZE - 8, posY + CELL_SIZE - 8);
-                        ctx.stroke();
-
-                    } else if (cellType === 2) {
-                        // --- 軟牆 (可破壞磚塊) ---
-                        // 畫成紅磚色或木箱
-                        ctx.fillStyle = "#A0522D"; // 赭色/磚紅
+                    } else if (state.map[y][x] === 2) {
+                         // 軟牆
+                        ctx.fillStyle = "#A0522D"; 
                         ctx.fillRect(posX + 2, posY + 2, CELL_SIZE - 4, CELL_SIZE - 4);
-                        
-                        // 畫磚塊紋路
-                        ctx.fillStyle = "#8B4513"; // 深褐色線條
-                        ctx.fillRect(posX + 2, posY + CELL_SIZE/2, CELL_SIZE-4, 2); // 橫線
-                        ctx.fillRect(posX + CELL_SIZE/2, posY + 2, 2, CELL_SIZE/2 - 2); // 豎線(上)
-                        ctx.fillRect(posX + CELL_SIZE/4, posY + CELL_SIZE/2, 2, CELL_SIZE/2 - 2); // 豎線(下錯位)
-                        
-                        // 邊框
                         ctx.strokeStyle = "#8B4513";
                         ctx.lineWidth = 2;
                         ctx.strokeRect(posX + 2, posY + 2, CELL_SIZE - 4, CELL_SIZE - 4);
-
                     } else {
-                        // --- 地板 ---
                         ctx.strokeStyle = "#292828"; 
                         ctx.lineWidth = 1;
                         ctx.beginPath();
@@ -521,6 +470,7 @@
                     }
                 }
             }
+
             // 炸彈
             state.bombs.forEach(b => {
                 const cx = b.x * CELL_SIZE + CELL_SIZE/2;
@@ -549,34 +499,69 @@
                 ctx.fillRect(exp.x*CELL_SIZE, exp.y*CELL_SIZE, CELL_SIZE, CELL_SIZE);
             });
 
-            // 玩家 (Pac-Man)
+            // 玩家
             for (const [sid, p] of Object.entries(state.players)) {
                 if(!p.alive) continue;
                 
                 const centerX = p.x * CELL_SIZE + CELL_SIZE/2;
                 const centerY = p.y * CELL_SIZE + CELL_SIZE/2;
                 const radius = CHAR_SIZE / 2;
-                const time = Date.now() / 100;
-                const mouthOpen = p.is_moving ? (0.2 + 0.2 * Math.sin(time * 2)) : 0.1; 
-                let rotation = 0;
-                if (p.face_dir) {
-                    rotation = Math.atan2(p.face_dir[1], p.face_dir[0]);
-                }
-                ctx.fillStyle = p.color;
-                ctx.beginPath();
-                ctx.arc(centerX, centerY, radius, rotation + mouthOpen * Math.PI, rotation + (2 - mouthOpen) * Math.PI);
-                ctx.lineTo(centerX, centerY);
-                ctx.fill();
 
-                const eyeOffsetX = Math.cos(rotation - Math.PI/2) * radius * 0.4; 
-                const eyeOffsetY = Math.sin(rotation - Math.PI/2) * radius * 0.4;
-                const eyeX = centerX + Math.cos(rotation) * radius * 0.2 + eyeOffsetX;
-                const eyeY = centerY + Math.sin(rotation) * radius * 0.2 + eyeOffsetY;
-                ctx.fillStyle = "#000";
-                ctx.beginPath();
-                ctx.arc(eyeX, eyeY, radius * 0.15, 0, Math.PI*2);
-                ctx.fill();
+                // 檢查是否有頭像
+                if (p.avatar) {
+                    // 有頭像 -> 畫圖片
+                    // 1. 檢查緩存
+                    if (!imgCache[p.avatar]) {
+                        const img = new Image();
+                        img.src = p.avatar;
+                        imgCache[p.avatar] = img;
+                    }
+                    const imgObj = imgCache[p.avatar];
+                    
+                    // 畫圓形裁切的圖片
+                    if (imgObj.complete) {
+                        ctx.save();
+                        ctx.beginPath();
+                        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+                        ctx.closePath();
+                        ctx.clip();
+                        // 畫圖 (保持比例填滿圓形)
+                        ctx.drawImage(imgObj, centerX - radius, centerY - radius, radius * 2, radius * 2);
+                        ctx.restore();
+                        
+                        // 畫個邊框顏色識別
+                        ctx.strokeStyle = p.color;
+                        ctx.lineWidth = 3;
+                        ctx.beginPath();
+                        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+                        ctx.stroke();
+                    }
+
+                } else {
+                    // 無頭像 -> 畫原本的 Pac-Man
+                    const time = Date.now() / 100;
+                    const mouthOpen = p.is_moving ? (0.2 + 0.2 * Math.sin(time * 2)) : 0.1; 
+                    let rotation = 0;
+                    if (p.face_dir) rotation = Math.atan2(p.face_dir[1], p.face_dir[0]);
+                    
+                    ctx.fillStyle = p.color;
+                    ctx.beginPath();
+                    ctx.arc(centerX, centerY, radius, rotation + mouthOpen * Math.PI, rotation + (2 - mouthOpen) * Math.PI);
+                    ctx.lineTo(centerX, centerY);
+                    ctx.fill();
+                    
+                    // 眼睛
+                    const eyeOffsetX = Math.cos(rotation - Math.PI/2) * radius * 0.4; 
+                    const eyeOffsetY = Math.sin(rotation - Math.PI/2) * radius * 0.4;
+                    const eyeX = centerX + Math.cos(rotation) * radius * 0.2 + eyeOffsetX;
+                    const eyeY = centerY + Math.sin(rotation) * radius * 0.2 + eyeOffsetY;
+                    ctx.fillStyle = "#000";
+                    ctx.beginPath();
+                    ctx.arc(eyeX, eyeY, radius * 0.15, 0, Math.PI*2);
+                    ctx.fill();
+                }
                 
+                // 名字標籤
                 ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
                 ctx.fillRect(centerX - 30, centerY - radius - 20, 60, 16);
                 ctx.fillStyle = "#fff";
@@ -590,9 +575,7 @@
         document.addEventListener('keydown', (e) => {
             if(!screens.game.classList.contains('active')) return;
             if(isSpectator) return;
-            // 如果焦點在輸入框，不觸發遊戲控制
             if(document.activeElement === document.getElementById('chat-input')) return;
-            
             if(keysPressed[e.key]) return;
             keysPressed[e.key] = true;
             socket.emit('key_down', {key: e.key});

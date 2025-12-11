@@ -5,14 +5,15 @@ from flask_socketio import SocketIO, emit, join_room
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
-socketio = SocketIO(app, cors_allowed_origins="*")
+# 增加 max_http_buffer_size 以允許圖片上傳 (預設是 1MB，我們稍微加大保險，雖然前端會壓縮)
+socketio = SocketIO(app, cors_allowed_origins="*", max_http_buffer_size=5 * 1024 * 1024)
 
 # --- 遊戲參數 ---
 MAP_SIZE = 12
 PLAYER_SPEED = 0.25
 BOMB_TIMER = 3
 EXPLOSION_DURATION = 1
-MAX_BOMBS = 1  # 新增：預設每人同時只能放 1 顆炸彈
+MAX_BOMBS = 2 
 FPS = 30
 FRAME_TIME = 1.0 / FPS
 
@@ -33,19 +34,14 @@ class GameState:
 
     def generate_map(self):
         while True:
-            # 1. 初始化: 全部填 0
             self.map_data = [[0] * MAP_SIZE for _ in range(MAP_SIZE)]
-            walkable_coords = [] # 用來存 "非硬牆" 的座標 (未來可能的通路)
+            walkable_coords = [] 
 
-            # 2. 佈置 "硬牆" (不可破壞)
             for y in range(MAP_SIZE):
                 for x in range(MAP_SIZE):
-                    # 邊界一定要硬牆
                     if x == 0 or x == MAP_SIZE-1 or y == 0 or y == MAP_SIZE-1:
                         self.map_data[y][x] = 1
-                    # 內部隨機硬牆 (密度約 10-15%)
-                    # 保留角落 3x3 不放硬牆，確保出生點附近稍微空曠
-                    elif random.random() < 0.15:
+                    elif random.random() < 0.15: 
                         if (x < 3 and y < 3) or (x > MAP_SIZE-4 and y < 3) or \
                            (x < 3 and y > MAP_SIZE-4) or (x > MAP_SIZE-4 and y > MAP_SIZE-4):
                             self.map_data[y][x] = 0
@@ -56,8 +52,6 @@ class GameState:
                         self.map_data[y][x] = 0
                         walkable_coords.append((x, y))
 
-            # 3. 連通性檢查 (BFS)
-            # 這裡的邏輯是：只要不是 "硬牆(1)"，都視為可通行 (因為軟牆可以被炸掉)
             if not walkable_coords: continue
             
             start_node = walkable_coords[0]
@@ -70,33 +64,23 @@ class GameState:
                 for dx, dy in [(0,1), (0,-1), (1,0), (-1,0)]:
                     nx, ny = cx + dx, cy + dy
                     if 0 <= nx < MAP_SIZE and 0 <= ny < MAP_SIZE:
-                        # 只要不是硬牆(1)，就算連通
                         if self.map_data[ny][nx] != 1 and (nx, ny) not in visited:
                             visited.add((nx, ny))
                             queue.append((nx, ny))
             
-            # 如果走訪到的數量 != 非硬牆的總數，代表有區域被硬牆徹底隔絕，重來
             if len(visited) != len(walkable_coords):
                 continue
             
-            # 4. 佈置 "軟牆" (可破壞磚塊)
-            # 在剩下的空地(0)中，隨機填入軟牆(2)
-            # 同樣避開角落出生點，避免玩家一出生就被卡死無法動彈
             for y in range(MAP_SIZE):
                 for x in range(MAP_SIZE):
                     if self.map_data[y][x] == 0:
-                        # 避開角落 (出生點)
                         if (x < 2 and y < 2) or (x > MAP_SIZE-3 and y < 2) or \
                            (x < 2 and y > MAP_SIZE-3) or (x > MAP_SIZE-3 and y > MAP_SIZE-3):
                             continue
-                        
-                        # 隨機放置軟牆 (密度高一點，例如 40%)
                         if random.random() < 0.4:
                             self.map_data[y][x] = 2
-            
-            # 成功生成，跳出迴圈
             break
-    
+
     def reset_round(self):
         self.is_running = False
         self.bombs = []
@@ -127,7 +111,8 @@ class GameState:
                     p['target_y'] = ry
                     break
 
-    def add_player(self, sid, name):
+    # --- 修改：新增 avatar 參數 ---
+    def add_player(self, sid, name, avatar=None):
         if not self.players:
             self.host_sid = sid
 
@@ -136,6 +121,7 @@ class GameState:
             if self.map_data[ry][rx] == 0:
                 self.players[sid] = {
                     'name': name,
+                    'avatar': avatar, # 儲存頭像 (Base64 string)
                     'x': rx,
                     'y': ry,
                     'target_x': rx,
@@ -162,40 +148,34 @@ class GameState:
         return False
 
     def is_walkable(self, tx, ty, sid=None):
-        if tx < 0 or tx >= MAP_SIZE or ty < 0 or ty >= MAP_SIZE: return False
-        
-        # 硬牆(1) 和 軟牆(2) 都是障礙物
-        if self.map_data[int(ty)][int(tx)] != 0: 
+        if tx < 0 or tx >= MAP_SIZE or ty < 0 or ty >= MAP_SIZE:
             return False
-            
+        if self.map_data[int(ty)][int(tx)] != 0:
+            return False
         for b in self.bombs:
-            if b['x'] == tx and b['y'] == ty: return False
-            
+            if b['x'] == tx and b['y'] == ty:
+                return False
         for other_sid, other_p in self.players.items():
             if other_sid == sid: continue
             if not other_p['alive']: continue 
-            if other_p['target_x'] == tx and other_p['target_y'] == ty: return False
-            
+            if other_p['target_x'] == tx and other_p['target_y'] == ty:
+                return False
         return True
 
-    # --- 修改重點：限制炸彈數量 ---
     def place_bomb(self, sid):
         if sid not in self.players or not self.players[sid]['alive']: return
         
-        # 1. 計算該玩家目前場上有幾顆未爆炸的炸彈
         current_bombs = 0
         for b in self.bombs:
             if b['owner'] == sid:
                 current_bombs += 1
         
-        # 2. 如果達到上限 (預設 1)，則禁止放置
         if current_bombs >= MAX_BOMBS:
             return
 
         p = self.players[sid]
         bx, by = int(round(p['x'])), int(round(p['y']))
         
-        # 檢查該位置是否已有炸彈 (避免重複放置)
         for b in self.bombs:
             if b['x'] == bx and b['y'] == by: return
             
@@ -218,6 +198,7 @@ class GameState:
 
     def update(self):
         current_time = time.time()
+        
         for sid, p in self.players.items():
             if not p['alive']: continue
             if p['is_moving']:
@@ -252,35 +233,26 @@ class GameState:
                     p['is_moving'] = True
                     p['face_dir'] = p['input_dir']
 
-        # 炸彈處理
         new_bombs = []
         for b in self.bombs:
             if current_time - b['timestamp'] > BOMB_TIMER:
                 range_len = MAP_SIZE 
                 explodes = [{'x': b['x'], 'y': b['y']}]
                 directions = [(0,1), (0,-1), (1,0), (-1,0)]
-                
                 for dx, dy in directions:
                     for i in range(1, range_len + 1):
                         ex, ey = b['x'] + dx * i, b['y'] + dy * i
-                        
                         if 0 <= ex < MAP_SIZE and 0 <= ey < MAP_SIZE:
                             block_type = self.map_data[ey][ex]
-                            
                             if block_type == 1: 
-                                # 遇到硬牆：停止擴散，且不炸牆
                                 break
                             elif block_type == 2:
-                                # 遇到軟牆：停止擴散，炸毀軟牆(變0)，並加入爆炸效果
                                 self.map_data[ey][ex] = 0
                                 explodes.append({'x': ex, 'y': ey})
-                                break # 重要：炸掉磚塊後，火光不能穿透過去，所以要 break
+                                break 
                             else:
-                                # 遇到空地：繼續擴散
                                 explodes.append({'x': ex, 'y': ey})
-                        else: 
-                            break 
-                            
+                        else: break 
                 for exp in explodes:
                     self.explosions.append({'x': exp['x'], 'y': exp['y'], 'timestamp': current_time})
             else:
@@ -308,16 +280,15 @@ class GameState:
             'is_running': self.is_running
         }
 
-# --- 修正後的版本 ---
 def broadcast_lobby_state(room, game):
     lobby_data = []
     for sid, p in game.players.items():
         lobby_data.append({
             'name': p['name'],
+            'avatar': p.get('avatar'), # 傳送頭像資料給大廳列表
             'is_host': (sid == game.host_sid),
             'is_ready': p['is_ready']
         })
-    # 改用 socketio.emit，這樣就不需要 request context 也能廣播
     socketio.emit('update_lobby', {
         'players': lobby_data, 
         'is_running': game.is_running,
@@ -327,6 +298,26 @@ def broadcast_lobby_state(room, game):
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@socketio.on('send_message')
+def on_send_message(data):
+    room = DEFAULT_ROOM
+    if room in ROOMS:
+        game = ROOMS[room]
+        if request.sid in game.players:
+            p = game.players[request.sid]
+            sender_name = p['name']
+            sender_avatar = p.get('avatar') # 取得頭像
+            msg = data['msg']
+            t = time.localtime()
+            time_str = f"{t.tm_hour:02d}:{t.tm_min:02d}"
+            emit('new_message', {
+                'name': sender_name,
+                'avatar': sender_avatar, # 傳給前端聊天室
+                'msg': msg,
+                'time': time_str,
+                'sid': request.sid
+            }, room=room)
 
 @socketio.on('req_lobby_update')
 def on_req_lobby_update():
@@ -346,6 +337,7 @@ def on_disconnect():
 @socketio.on('create_join')
 def on_join(data):
     name = data['name']
+    avatar = data.get('avatar') # 接收前端傳來的頭像
     room = DEFAULT_ROOM 
     join_room(room)
     if room not in ROOMS: ROOMS[room] = GameState()
@@ -356,7 +348,8 @@ def on_join(data):
         if len(game.players) >= 8:
             emit('error', {'msg': '房間已滿'})
             return
-        game.add_player(request.sid, name)
+        # 將頭像傳入
+        game.add_player(request.sid, name, avatar)
         broadcast_lobby_state(room, game)
 
 @socketio.on('toggle_ready')
@@ -419,27 +412,6 @@ def on_key_up(data):
                (key in ['ArrowLeft', 'a'] and current_dir == (-1, 0)) or \
                (key in ['ArrowRight', 'd'] and current_dir == (1, 0)):
                 p['input_dir'] = None
-
-@socketio.on('send_message')
-def on_send_message(data):
-    room = DEFAULT_ROOM
-    if room in ROOMS:
-        game = ROOMS[room]
-        # 確認發話者是否在房間內
-        if request.sid in game.players:
-            sender_name = game.players[request.sid]['name']
-            msg = data['msg']
-            # 取得當前時間 HH:MM
-            t = time.localtime()
-            time_str = f"{t.tm_hour:02d}:{t.tm_min:02d}"
-            
-            # 廣播給所有人 (包含發送者)
-            emit('new_message', {
-                'name': sender_name,
-                'msg': msg,
-                'time': time_str,
-                'sid': request.sid # 用來讓前端判斷是不是自己發的
-            }, room=room)
 
 def game_loop(room_id):
     while True:
