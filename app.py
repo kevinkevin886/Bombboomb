@@ -13,7 +13,7 @@ MAP_SIZE = 12
 PLAYER_SPEED = 0.25
 BOMB_TIMER = 3
 EXPLOSION_DURATION = 1
-MAX_BOMBS = 3 
+INITIAL_BOMB_LIMIT = 2 
 FPS = 30
 FRAME_TIME = 1.0 / FPS
 
@@ -30,6 +30,7 @@ class GameState:
         self.is_running = False
         self.winner = None
         self.winner_sid = None
+        self.start_player_count = 2
         self.generate_map()
 
     def generate_map(self):
@@ -147,67 +148,104 @@ class GameState:
         return False
 
     def is_walkable(self, tx, ty, sid=None):
-        if tx < 0 or tx >= MAP_SIZE or ty < 0 or ty >= MAP_SIZE:
-            return False
-        if self.map_data[int(ty)][int(tx)] != 0:
-            return False
+        if tx < 0 or tx >= MAP_SIZE or ty < 0 or ty >= MAP_SIZE: return False
+        
+        # 嚴格整數檢查
+        itx, ity = int(round(tx)), int(round(ty))
+        if self.map_data[ity][itx] != 0: return False # 撞牆/磚
+        
         for b in self.bombs:
-            if b['x'] == tx and b['y'] == ty:
-                return False
+            if b['x'] == itx and b['y'] == ity: return False
+            
         for other_sid, other_p in self.players.items():
             if other_sid == sid: continue
             if not other_p['alive']: continue 
-            if other_p['target_x'] == tx and other_p['target_y'] == ty:
+            # 檢查目標位置
+            if int(round(other_p['target_x'])) == itx and int(round(other_p['target_y'])) == ity:
+                return False
+            # 額外檢查：如果對方正在移動，也要避開他目前的位置(避免穿模)
+            if int(round(other_p['x'])) == itx and int(round(other_p['y'])) == ity:
                 return False
         return True
+    
+    def get_current_bomb_limit(self):
+        # 確保 start_player_count 至少是目前連線人數 (避免 reset 後變 0 的問題)
+        base_count = max(self.start_player_count, len(self.players))
+        
+        current_alive = sum(1 for p in self.players.values() if p['alive'])
+        dead_count = base_count - current_alive
+        if dead_count < 0: dead_count = 0
+        
+        return INITIAL_BOMB_LIMIT + dead_count
 
     def place_bomb(self, sid):
         if sid not in self.players or not self.players[sid]['alive']: return
         
-        current_bombs = 0
+        current_user_bombs = 0
         for b in self.bombs:
             if b['owner'] == sid:
-                current_bombs += 1
+                current_user_bombs += 1
         
-        if current_bombs >= MAX_BOMBS:
-            return
+        dynamic_limit = self.get_current_bomb_limit()
+        if current_user_bombs >= dynamic_limit: return
 
         p = self.players[sid]
         bx, by = int(round(p['x'])), int(round(p['y']))
-        
         for b in self.bombs:
             if b['x'] == bx and b['y'] == by: return
-            
         self.bombs.append({'x': bx, 'y': by, 'owner': sid, 'timestamp': time.time()})
-
+    
     def check_win(self):
         if not self.is_running: return
+        
+        # 取得所有活著的玩家 SID
         alive_sids = [sid for sid, p in self.players.items() if p['alive']]
-        if len(self.players) == 0:
-            self.winner = "所有人都離開了"
-            self.is_running = False
-        elif len(alive_sids) == 1:
-            sid = alive_sids[0]
-            self.winner = self.players[sid]['name']
-            self.winner_sid = sid
-            self.is_running = False
-        elif len(alive_sids) == 0:
+        
+        # 取得目前總連線玩家數 (包含死掉的幽靈)
+        total_players = len(self.players)
+
+        # 狀況 1: 平手 (大家同歸於盡)
+        if len(alive_sids) == 0:
             self.winner = "無人生還"
             self.is_running = False
+            return
+
+        # 狀況 2: 只有一個人活著
+        if len(alive_sids) == 1:
+            # 關鍵修正：只要這場遊戲"曾經"是多人的 (start_player_count > 1)
+            # 或者 現在房間裡還有其他人 (total_players > 1)，就代表不是自己在測試
+            if self.start_player_count > 1 or total_players > 1:
+                sid = alive_sids[0]
+                self.winner = self.players[sid]['name']
+                self.winner_sid = sid
+                self.is_running = False
+                return
+        
+        # 狀況 3: 所有人都斷線光了
+        if total_players == 0:
+            self.winner = "所有人都離開了"
+            self.is_running = False
+            return
 
     def update(self):
         current_time = time.time()
         
-        # 1. 玩家移動處理 (維持不變)
+        # 1. 玩家移動 (微調)
         for sid, p in self.players.items():
             if not p['alive']: continue
+            
+            # 強制校正浮點數誤差 (如果非常接近整數，就吸附過去)
+            if not p['is_moving']:
+                p['x'] = float(int(round(p['x'])))
+                p['y'] = float(int(round(p['y'])))
+
             if p['is_moving']:
                 dx = p['target_x'] - p['x']
                 dy = p['target_y'] - p['y']
                 dist = (dx**2 + dy**2) ** 0.5
                 if dist <= PLAYER_SPEED:
-                    p['x'] = p['target_x']
-                    p['y'] = p['target_y']
+                    p['x'] = float(p['target_x']) # 強制轉型確保一致
+                    p['y'] = float(p['target_y'])
                     p['is_moving'] = False
                     if p['input_dir']:
                         idx, idy = p['input_dir']
@@ -233,77 +271,54 @@ class GameState:
                     p['is_moving'] = True
                     p['face_dir'] = p['input_dir']
 
-        # --- 炸彈與連鎖爆炸處理 (重點修改) ---
-        
-        # 1. 區分「時間到要爆的」和「還沒要爆的」
+        # --- 2. 炸彈與連鎖爆炸 (優化版，防止死鎖) ---
         bombs_to_explode = []
-        remaining_bombs_map = {} # 用 dict 方便快速查詢座標 (x, y) -> bomb
-        
+        remaining_bombs_map = {} 
         for b in self.bombs:
             if current_time - b['timestamp'] > BOMB_TIMER:
                 bombs_to_explode.append(b)
             else:
                 remaining_bombs_map[(b['x'], b['y'])] = b
 
-        # 2. 開始連鎖爆炸計算
-        # 使用 Queue 來處理連鎖 (BFS 概念)
-        # bombs_to_explode 是我們的 Queue，我們會不斷往裡面加東西
+        processed_explosions = [] 
         
-        # 為了避免無窮迴圈(A炸B, B炸A)，我們不需要特別的 visited，
-        # 因為只要炸彈被觸發，就會從 remaining_bombs_map 移除，不會被炸第二次。
-        
-        processed_explosions = [] # 最終產生的所有火光
+        # 安全機制：限制最大連鎖次數，防止 while True 卡死
+        max_chain_loops = 100 
+        loop_count = 0
         
         i = 0
         while i < len(bombs_to_explode):
+            loop_count += 1
+            if loop_count > max_chain_loops: break # 強制跳出
+
             b = bombs_to_explode[i]
             i += 1
-            
-            # 炸彈中心
             processed_explosions.append({'x': b['x'], 'y': b['y'], 'timestamp': current_time})
-            
-            # 計算四個方向的火光
-            range_len = MAP_SIZE # 全圖攻擊
+            range_len = MAP_SIZE 
             directions = [(0,1), (0,-1), (1,0), (-1,0)]
-            
             for dx, dy in directions:
                 for dist in range(1, range_len + 1):
                     ex, ey = b['x'] + dx * dist, b['y'] + dy * dist
-                    
                     if 0 <= ex < MAP_SIZE and 0 <= ey < MAP_SIZE:
-                        # 檢查：這裡有沒有硬牆？
                         if self.map_data[ey][ex] == 1:
-                            break # 火光停止
-                        
-                        # 檢查：這裡有沒有軟牆？
+                            break 
                         elif self.map_data[ey][ex] == 2:
-                            self.map_data[ey][ex] = 0 # 炸毀
+                            self.map_data[ey][ex] = 0 
                             processed_explosions.append({'x': ex, 'y': ey, 'timestamp': current_time})
-                            break # 火光停止 (因為炸到牆了)
-                        
-                        # 檢查：這裡有沒有別的炸彈？ (誘爆邏輯)
+                            break 
                         elif (ex, ey) in remaining_bombs_map:
-                            # 觸發連鎖！
-                            chained_bomb = remaining_bombs_map.pop((ex, ey)) # 取出並移除
-                            bombs_to_explode.append(chained_bomb) # 加入待爆清單，等下就會輪到它算火光
-                            # 炸彈被誘爆時，火光會繼續穿過去嗎？通常會覆蓋炸彈這格
+                            chained_bomb = remaining_bombs_map.pop((ex, ey)) 
+                            bombs_to_explode.append(chained_bomb) # 加入佇列
                             processed_explosions.append({'x': ex, 'y': ey, 'timestamp': current_time})
-                            # 注意：如果希望火光穿過炸彈繼續延伸，這裡不要 break
-                            # 如果希望炸彈擋住火光(像牆一樣)，這裡要 break
-                            # 爆爆王規則通常是：火光會覆蓋這顆炸彈，然後這顆炸彈產生新的十字火光
-                            # 所以這裡不 break，繼續往下畫火光
-                        
+                            # 不 break，讓火光穿透這顆被誘爆的炸彈
                         else:
-                            # 普通地板
                             processed_explosions.append({'x': ex, 'y': ey, 'timestamp': current_time})
                     else:
-                        break # 超出邊界
+                        break 
 
-        # 3. 更新狀態
-        self.bombs = list(remaining_bombs_map.values()) # 剩下的炸彈
-        self.explosions.extend(processed_explosions) # 加入新產生的爆炸
+        self.bombs = list(remaining_bombs_map.values()) 
+        self.explosions.extend(processed_explosions) 
 
-        # 4. 清除過期的爆炸 & 判定玩家死亡
         active_explosions = []
         for exp in self.explosions:
             if current_time - exp['timestamp'] < EXPLOSION_DURATION:
@@ -322,7 +337,8 @@ class GameState:
             'bombs': self.bombs,
             'explosions': self.explosions,
             'winner': self.winner,
-            'is_running': self.is_running
+            'is_running': self.is_running,
+            'bomb_limit': self.get_current_bomb_limit()
         }
 
 def broadcast_lobby_state(room, game):
@@ -411,8 +427,9 @@ def on_start(data):
     if room in ROOMS:
         game = ROOMS[room]
         if request.sid != game.host_sid: return
+        # 確保人數足夠
         if len(game.players) < 2:
-            emit('error', {'msg': '至少需要兩位玩家！'}, to=request.sid)
+            emit('error', {'msg': '至少需要兩位玩家才能開始！'}, to=request.sid)
             return
         not_ready = [p['name'] for p in game.players.values() if not p['is_ready']]
         if not_ready:
@@ -421,6 +438,12 @@ def on_start(data):
         if not game.is_running: 
             game.is_running = True
             game.winner = None
+            
+            # === 強制更新初始人數 ===
+            game.start_player_count = len(game.players)
+            print(f"Game Started! Initial players: {game.start_player_count}") # Debug log
+            # =====================
+            
             socketio.start_background_task(game_loop, room)
 
 @socketio.on('key_down')
@@ -463,18 +486,35 @@ def game_loop(room_id):
         game = ROOMS[room_id]
         state = game.update()
         socketio.emit('state_update', state, room=room_id)
+        
+        # Check for winner
         if game.winner:
-            socketio.sleep(0.1) 
+            print(f"Detected Winner: {game.winner}") 
+            # We found a winner, break the loop to handle end-game sequence
             break
+            
         if not game.is_running: break
         socketio.sleep(FRAME_TIME)
     
+    # --- End Game Sequence ---
     if room_id in ROOMS:
         game = ROOMS[room_id]
-        socketio.emit('game_over_reset', {'winner': game.winner}, room=room_id)
+        
+        # 1. Capture the winner name explicitly by value
+        winner_name = str(game.winner) 
+        print(f"Broadcasting Game Over: {winner_name}")
+        
+        # 2. Emit the Game Over event
+        socketio.emit('game_over_reset', {'winner': winner_name}, room=room_id)
+        
+        # 3. CRITICAL PAUSE: Wait for client to receive and process the event
+        # Do NOT reset the game yet. Give the network time.
+        socketio.sleep(1.0) 
+        
+        # 4. Now safely reset the game state
         game.reset_round()
-        socketio.sleep(0.1)
+        
+        # 5. Finally, update the lobby for the next round
         broadcast_lobby_state(room_id, game)
-
 if __name__ == '__main__':
     socketio.run(app, debug=True, host='0.0.0.0', port=5000)
