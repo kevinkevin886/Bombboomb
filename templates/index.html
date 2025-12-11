@@ -470,17 +470,47 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             // 地圖
+            // 1. 畫地圖
             for(let y=0; y<MAP_W; y++) {
                 for(let x=0; x<MAP_W; x++) {
                     const posX = x * CELL_SIZE;
                     const posY = y * CELL_SIZE;
-                    if(state.map[y][x] === 1) {
+                    const cellType = state.map[y][x];
+
+                    if(cellType === 1) {
+                        // --- 硬牆 (不可破壞) ---
+                        // 畫成深色金屬或石塊感
                         ctx.fillStyle = "#3b3a3a"; 
                         ctx.fillRect(posX + 2, posY + 2, CELL_SIZE - 4, CELL_SIZE - 4);
                         ctx.lineWidth = 2;
-                        ctx.strokeStyle = "#4f4f4f";
+                        ctx.strokeStyle = "#4f4f4f"; // 金屬邊框
                         ctx.strokeRect(posX + 2, posY + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+                        
+                        // 加上一個"X"或鉚釘裝飾表示堅硬
+                        ctx.beginPath();
+                        ctx.moveTo(posX + 8, posY + 8);
+                        ctx.lineTo(posX + CELL_SIZE - 8, posY + CELL_SIZE - 8);
+                        ctx.stroke();
+
+                    } else if (cellType === 2) {
+                        // --- 軟牆 (可破壞磚塊) ---
+                        // 畫成紅磚色或木箱
+                        ctx.fillStyle = "#A0522D"; // 赭色/磚紅
+                        ctx.fillRect(posX + 2, posY + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+                        
+                        // 畫磚塊紋路
+                        ctx.fillStyle = "#8B4513"; // 深褐色線條
+                        ctx.fillRect(posX + 2, posY + CELL_SIZE/2, CELL_SIZE-4, 2); // 橫線
+                        ctx.fillRect(posX + CELL_SIZE/2, posY + 2, 2, CELL_SIZE/2 - 2); // 豎線(上)
+                        ctx.fillRect(posX + CELL_SIZE/4, posY + CELL_SIZE/2, 2, CELL_SIZE/2 - 2); // 豎線(下錯位)
+                        
+                        // 邊框
+                        ctx.strokeStyle = "#8B4513";
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(posX + 2, posY + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+
                     } else {
+                        // --- 地板 ---
                         ctx.strokeStyle = "#292828"; 
                         ctx.lineWidth = 1;
                         ctx.beginPath();
@@ -491,7 +521,6 @@
                     }
                 }
             }
-
             // 炸彈
             state.bombs.forEach(b => {
                 const cx = b.x * CELL_SIZE + CELL_SIZE/2;
